@@ -1,0 +1,14 @@
+[package]
+name = "irretroforum"
+version = "0.0.0"
+edition = "2021"
+
+[dependencies]
+axum = { version = "0.6.0-rc.2", features = ["http1"], default-features = false }
+serde = { version = "1.0", features = ["derive"] }
+tokio = { version = "1.21", features = ["macros", "rt-multi-thread"] }
+tokio-postgres = { version = "0.7", features = ["with-uuid-1"] }
+toml = "0.5"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+uuid = { version = "1.2", features = ["serde", "v4"] }
