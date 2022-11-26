@@ -14,6 +14,7 @@ pub struct SessionCookie {
 struct SessionDetails {
     user_id: Uuid,
     username: String,
+    token_hex: String,
 }
 
 impl SessionCookie {
@@ -23,6 +24,10 @@ impl SessionCookie {
 
     pub fn username(&self) -> Option<&str> {
         self.details.as_ref().map(|d| d.username.as_str())
+    }
+
+    pub fn token_hex(&self) -> Option<&str> {
+        self.details.as_ref().map(|d| d.token_hex.as_str())
     }
 }
 
@@ -41,7 +46,11 @@ impl FromRequestParts<App> for SessionCookie {
             let user_id: Uuid = user.get(0);
             let username: String = user.get(1);
             Ok(SessionCookie {
-                details: Some(SessionDetails { user_id, username }),
+                details: Some(SessionDetails {
+                    user_id,
+                    username,
+                    token_hex: token_hex.to_owned(),
+                }),
             })
         } else {
             Ok(SessionCookie { details: None })

@@ -208,6 +208,28 @@ async fn login(
     )
 }
 
+async fn logout(
+    app: State<App>,
+    session: SessionCookie,
+) -> (AppendHeaders<HeaderName, &'static str, 1>, Redirect) {
+    if let Some(session_token_hex) = session.token_hex() {
+        app.database
+            .execute(
+                "DELETE FROM sessions WHERE token = $1",
+                &[&session_token_hex],
+            )
+            .await
+            .unwrap();
+    }
+    (
+        AppendHeaders([(
+            SET_COOKIE,
+            "session=; Max-Age=0; Secure; HttpOnly; SameSite=Strict",
+        )]),
+        Redirect::to("/"),
+    )
+}
+
 async fn show_register_form(session: SessionCookie) -> Html<String> {
     wrap_html(
         "Register on Irretroforum",
@@ -283,6 +305,7 @@ async fn main() {
         .route("/thread/:id/post", post(post_in_thread))
         .route("/user/:id", get(show_user))
         .route("/login", get(show_login_form).post(login))
+        .route("/logout", post(logout))
         .route("/register", get(show_register_form).post(register))
         .route("/style.css", get(show_css))
         .layer(axum::middleware::from_fn(logging_middleware));
