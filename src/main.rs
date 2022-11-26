@@ -18,6 +18,7 @@ use serde::Deserialize;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio_postgres::NoTls;
+use totp_rs::TOTP;
 use tracing::{event, info, span, Instrument, Level};
 use uuid::Uuid;
 
@@ -35,6 +36,7 @@ struct PostInThreadForm {
 struct LogInForm {
     username: String,
     password: String,
+    totp: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -179,17 +181,30 @@ async fn login(
     let user = app
         .database
         .query_one(
-            "SELECT id, password_phc FROM users WHERE username = $1",
+            "SELECT id, password_phc, totp_secret FROM users WHERE username = $1",
             &[&form.username],
         )
         .await
         .unwrap();
     let user_id: Uuid = user.get(0);
     let password_phc: &str = user.get(1);
+    let totp_secret: Option<&str> = user.get(2);
     let password_hash = argon2::PasswordHash::new(password_phc).unwrap();
     argon2::Argon2::default()
         .verify_password(form.password.as_bytes(), &password_hash)
         .unwrap();
+    if let Some(totp_secret) = totp_secret {
+        let rfc6238 = totp_rs::Rfc6238::new(
+            6,
+            totp_secret,
+            Some("Irretroforum".to_owned()),
+            form.username.clone(),
+        )
+        .unwrap();
+        let totp = TOTP::from_rfc6238(rfc6238).unwrap();
+        let totp_checked = totp.check_current(&form.totp).unwrap();
+        assert!(totp_checked);
+    }
     let session_token: [u8; 128 / 8] = rand::thread_rng().gen();
     let session_token_hex = hex::encode(session_token);
     app.database
@@ -259,6 +274,63 @@ async fn register(app: State<App>, form: Form<RegisterForm>) -> Redirect {
     Redirect::to("/")
 }
 
+async fn show_settings(app: State<App>, session: SessionCookie) -> Html<String> {
+    let user_id = session.user_id().unwrap();
+    let user = app
+        .database
+        .query_one(
+            "SELECT totp_secret IS NOT NULL FROM users WHERE id = $1",
+            &[&user_id],
+        )
+        .await
+        .unwrap();
+    let totp_enabled: bool = user.get(0);
+    let mut html = String::new();
+    html += match totp_enabled {
+        true => include_str!("html/settings-totp-enabled.html"),
+        false => include_str!("html/settings-totp-disabled.html"),
+    };
+    wrap_html("Irretroforum settings", &html, session)
+}
+
+async fn show_settings_totp(app: State<App>, session: SessionCookie) -> Html<String> {
+    let user_id = session.user_id().unwrap();
+    let username = session.username().unwrap();
+    let user = app
+        .database
+        .query_one("SELECT totp_secret FROM users WHERE id = $1", &[&user_id])
+        .await
+        .unwrap();
+    let totp_secret: &str = user.get(0);
+    let rfc6238 = totp_rs::Rfc6238::new(
+        6,
+        totp_secret,
+        Some("Irretroforum".to_owned()),
+        username.to_owned(),
+    )
+    .unwrap();
+    let totp = TOTP::from_rfc6238(rfc6238).unwrap();
+    let qr_base64 = totp.get_qr().unwrap();
+    wrap_html(
+        "TOTP settings",
+        &format!("<img src=\"data:image/png;base64, {qr_base64}\"/>"),
+        session,
+    )
+}
+
+async fn totp_enable(app: State<App>, session: SessionCookie) -> Redirect {
+    let user_id = session.user_id().unwrap();
+    let secret = totp_rs::Secret::generate_secret();
+    app.database
+        .execute(
+            "UPDATE users SET totp_secret = $1 WHERE id = $2",
+            &[&secret.to_string(), &user_id],
+        )
+        .await
+        .unwrap();
+    Redirect::to("/settings/totp")
+}
+
 async fn show_css() -> &'static str {
     include_str!("css/style.css")
 }
@@ -307,6 +379,9 @@ async fn main() {
         .route("/login", get(show_login_form).post(login))
         .route("/logout", post(logout))
         .route("/register", get(show_register_form).post(register))
+        .route("/settings", get(show_settings))
+        .route("/settings/totp", get(show_settings_totp))
+        .route("/settings/totp/enable", post(totp_enable))
         .route("/style.css", get(show_css))
         .layer(axum::middleware::from_fn(logging_middleware));
     tokio::spawn(database.1);

@@ -1,7 +1,8 @@
 CREATE TABLE users (
     id UUID PRIMARY KEY NOT NULL DEFAULT gen_random_uuid(),
     username VARCHAR(256) UNIQUE NOT NULL,
-    password_phc VARCHAR(128) NOT NULL
+    password_phc VARCHAR(128) NOT NULL,
+    totp_secret VARCHAR(64)
 );
 
 CREATE TABLE forums (
