@@ -108,59 +108,50 @@ async fn show_thread(
     let posts = app
         .database
         .query(
-            "SELECT p.id, p.author, content, COUNT(r.author), emoji FROM posts p LEFT JOIN reacts r ON p.id = post WHERE thread = $1 GROUP BY p.id, p.author, p.time_created, content, emoji ORDER BY p.time_created ASC",
+            r#"
+                SELECT author, content, ARRAY_AGG(emoji), ARRAY_AGG(react_count)
+                FROM (
+                    SELECT p.author, p.time_created, content, emoji, COUNT(r.author) react_count
+                    FROM posts p
+                    LEFT JOIN reacts r
+                    ON p.id = r.post
+                    WHERE p.thread = $1
+                    GROUP BY p.author, p.time_created, content, emoji
+                    ORDER BY react_count DESC, emoji
+                ) AS pr
+                GROUP BY author, time_created, content
+                ORDER BY time_created;
+            "#,
             &[&thread_id],
         )
         .await
         .unwrap();
-    let mut grouped_posts: Vec<(Uuid, Uuid, String, Vec<(String, usize)>)> = Vec::new();
     let mut html = String::new();
     for post in posts {
-        let post_id: Uuid = post.get(0);
-        let user_id: Uuid = post.get(1);
-        let post_content: String = post.get(2);
-        let react_count: usize = post.get::<_, i64>(3) as usize;
-        let react_emoji: Option<String> = post.get(4);
-        let mut found_post = false;
-        for post in &mut grouped_posts {
-            if post.0 == post_id {
-                if let Some(react_emoji) = &react_emoji {
-                    post.3.push((react_emoji.clone(), react_count));
-                }
-                found_post = true;
-                break;
-            }
-        }
-        if !found_post {
-            let reacts = if let Some(react_emoji) = react_emoji {
-                vec![(react_emoji, react_count)]
-            } else {
-                Vec::new()
-            };
-            grouped_posts.push((post_id, user_id, post_content, reacts));
-        }
-    }
-    for (_, author_id, post_content, reacts) in grouped_posts {
-        let user = app
+        let post_author: Uuid = post.get(0);
+        let post_content: &str = post.get(1);
+        let react_emojis: Vec<Option<&str>> = post.get(2);
+        let react_counts: Vec<i64> = post.get(3);
+        let author = app
             .database
-            .query_one("SELECT username FROM users WHERE id = $1", &[&author_id])
+            .query_one("SELECT username FROM users WHERE id = $1", &[&post_author])
             .await
             .unwrap();
-        let user_username: &str = user.get(0);
-        let safe_post_content: String = post_content
-            .chars()
-            .filter(|c| c.is_ascii_alphanumeric() || c == &' ')
-            .collect();
+        let author_username: &str = author.get(0);
+        let safe_post_content = html_escape::encode_text(post_content);
         html += &format!(
-            "<div><a href=\"/user/{author_id}\">{user_username}</a>:<p>{safe_post_content}</p>"
+            "<div><a href=\"/user/{post_author}\">{author_username}</a>:<p>{safe_post_content}</p>"
         );
-        for (react_emoji, react_count) in reacts {
-            html += &format!("<span>{react_emoji}");
-            if react_count > 1 {
-                html += &format!(" {react_count}");
+        for (react_emoji, react_count) in react_emojis.into_iter().zip(react_counts.into_iter()) {
+            if let Some(react_emoji) = react_emoji {
+                html += &format!("<span>{react_emoji}");
+                if react_count > 1 {
+                    html += &format!(" {react_count}");
+                }
+                html += "</span>";
             }
-            html += "</span></div>";
         }
+        html += "</div>";
     }
     html += &format!(
         include_str!("html/thread-post-form.html"),
