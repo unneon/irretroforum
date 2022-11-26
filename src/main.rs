@@ -108,7 +108,7 @@ async fn show_thread(
     let posts = app
         .database
         .query(
-            "SELECT p.id, p.author, content, COUNT(r.author), emoji FROM posts p LEFT JOIN reacts r ON p.id = post WHERE thread = $1 GROUP BY p.id, p.author, content, emoji",
+            "SELECT p.id, p.author, content, COUNT(r.author), emoji FROM posts p LEFT JOIN reacts r ON p.id = post WHERE thread = $1 GROUP BY p.id, p.author, p.time_created, content, emoji ORDER BY p.time_created ASC",
             &[&thread_id],
         )
         .await
