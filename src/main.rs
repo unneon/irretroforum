@@ -191,7 +191,7 @@ async fn login(
         .verify_password(form.password.as_bytes(), &password_hash)
         .unwrap();
     let session_token: [u8; 128 / 8] = rand::thread_rng().gen();
-    let session_token_hex = hex::encode(&session_token);
+    let session_token_hex = hex::encode(session_token);
     app.database
         .execute(
             "INSERT INTO sessions (\"user\", token) VALUES ($1, $2)",
