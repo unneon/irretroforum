@@ -1,23 +1,24 @@
 mod config;
+mod sessions;
 mod view;
 
-use crate::view::{begin_html, end_html};
+use crate::sessions::SessionCookie;
+use crate::view::wrap_html;
 use argon2::password_hash::SaltString;
 use argon2::{PasswordHasher, PasswordVerifier};
 use axum::extract::{ConnectInfo, Path, State};
-use axum::headers::Cookie;
 use axum::http::header::{HeaderName, SET_COOKIE};
 use axum::http::{Request, StatusCode};
 use axum::middleware::Next;
 use axum::response::{AppendHeaders, Html, Redirect, Response};
 use axum::routing::{get, post};
-use axum::{Form, RequestPartsExt, Router, TypedHeader};
+use axum::{Form, RequestPartsExt, Router};
 use rand::Rng;
 use serde::Deserialize;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio_postgres::NoTls;
-use tracing::{debug, event, info, span, Instrument, Level};
+use tracing::{event, info, span, Instrument, Level};
 use uuid::Uuid;
 
 #[derive(Clone)]
@@ -42,22 +43,26 @@ struct RegisterForm {
     password: String,
 }
 
-async fn show_homepage(app: State<App>) -> Html<String> {
+async fn show_homepage(app: State<App>, session: SessionCookie) -> Html<String> {
     let forums = app
         .database
         .query("SELECT id, name FROM forums", &[])
         .await
         .unwrap();
-    let mut html = begin_html("Irretroforum");
+    let mut html = String::new();
     for forum in forums {
         let forum_id: Uuid = forum.get(0);
         let forum_name: &str = forum.get(1);
         html += &format!("<a href=\"/forum/{forum_id}\">{forum_name}</a><br/>");
     }
-    end_html(html)
+    wrap_html("Irretroforum", &html, session)
 }
 
-async fn show_forum(Path(forum_id): Path<Uuid>, app: State<App>) -> Html<String> {
+async fn show_forum(
+    Path(forum_id): Path<Uuid>,
+    app: State<App>,
+    session: SessionCookie,
+) -> Html<String> {
     let forum = app
         .database
         .query_one("SELECT name FROM forums WHERE id = $1", &[&forum_id])
@@ -72,16 +77,20 @@ async fn show_forum(Path(forum_id): Path<Uuid>, app: State<App>) -> Html<String>
         )
         .await
         .unwrap();
-    let mut html = begin_html(&format!("{forum_name} at Irretroforum"));
+    let mut html = String::new();
     for thread in threads {
         let thread_id: Uuid = thread.get(0);
         let thread_title: &str = thread.get(1);
         html += &format!("<a href=\"/thread/{thread_id}\">{thread_title}</a><br/>");
     }
-    end_html(html)
+    wrap_html(&format!("{forum_name} at Irretroforum"), &html, session)
 }
 
-async fn show_thread(Path(thread_id): Path<Uuid>, app: State<App>) -> Html<String> {
+async fn show_thread(
+    Path(thread_id): Path<Uuid>,
+    app: State<App>,
+    session: SessionCookie,
+) -> Html<String> {
     let thread = app
         .database
         .query_one("SELECT title FROM threads WHERE id = $1", &[&thread_id])
@@ -96,7 +105,7 @@ async fn show_thread(Path(thread_id): Path<Uuid>, app: State<App>) -> Html<Strin
         )
         .await
         .unwrap();
-    let mut html = begin_html(thread_title);
+    let mut html = String::new();
     for post in posts {
         let user_id: Uuid = post.get(0);
         let post_content: &str = post.get(1);
@@ -117,29 +126,16 @@ async fn show_thread(Path(thread_id): Path<Uuid>, app: State<App>) -> Html<Strin
         include_str!("html/thread-post-form.html"),
         thread_id = thread_id
     );
-    end_html(html)
+    wrap_html(thread_title, &html, session)
 }
 
 async fn post_in_thread(
     Path(thread_id): Path<Uuid>,
-    cookies: TypedHeader<Cookie>,
     app: State<App>,
+    session: SessionCookie,
     form: Form<PostInThreadForm>,
 ) -> Redirect {
-    let session_hex = cookies.get("session").unwrap();
-    debug!(
-        session = session_hex,
-        "Checking authorization for session token"
-    );
-    let user = app
-        .database
-        .query_one(
-            "SELECT \"user\" FROM sessions WHERE token = $1",
-            &[&session_hex],
-        )
-        .await
-        .unwrap();
-    let user_id: Uuid = user.get(0);
+    let user_id: Uuid = session.user_id().unwrap();
     app.database
         .execute(
             "INSERT INTO posts (thread, author, content) VALUES ($1, $2, $3)",
@@ -150,22 +146,30 @@ async fn post_in_thread(
     Redirect::to(&format!("/thread/{thread_id}"))
 }
 
-async fn show_user(Path(user_id): Path<Uuid>, app: State<App>) -> Html<String> {
+async fn show_user(
+    Path(user_id): Path<Uuid>,
+    app: State<App>,
+    session: SessionCookie,
+) -> Html<String> {
     let user = app
         .database
         .query_one("SELECT username FROM users WHERE id = $1", &[&user_id])
         .await
         .unwrap();
     let user_username: &str = user.get(0);
-    let mut html = begin_html(&format!("{user_username}'s profile"));
-    html += &format!("<p>{user_username}</p>");
-    end_html(html)
+    wrap_html(
+        &format!("{user_username}'s profile"),
+        &format!("<p>{user_username}</p>"),
+        session,
+    )
 }
 
-async fn show_login_form() -> Html<String> {
-    let mut html = begin_html("Log in to Irretroforum");
-    html += include_str!("html/login-form.html");
-    end_html(html)
+async fn show_login_form(session: SessionCookie) -> Html<String> {
+    wrap_html(
+        "Log in to Irretroforum",
+        include_str!("html/login-form.html"),
+        session,
+    )
 }
 
 async fn login(
@@ -204,10 +208,12 @@ async fn login(
     )
 }
 
-async fn show_register_form() -> Html<String> {
-    let mut html = begin_html("Register on Irretroforum");
-    html += include_str!("html/register-form.html");
-    end_html(html)
+async fn show_register_form(session: SessionCookie) -> Html<String> {
+    wrap_html(
+        "Register on Irretroforum",
+        include_str!("html/register-form.html"),
+        session,
+    )
 }
 
 async fn register(app: State<App>, form: Form<RegisterForm>) -> Redirect {
