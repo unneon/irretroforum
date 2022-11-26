@@ -2,7 +2,7 @@ mod auth;
 mod config;
 mod view;
 
-use crate::auth::{Auth, Session};
+use crate::auth::{verify_password, verify_totp, Auth, Session};
 use crate::config::Config;
 use crate::view::wrap_html;
 use argon2::password_hash::SaltString;
@@ -14,12 +14,10 @@ use axum::middleware::Next;
 use axum::response::{AppendHeaders, Html, Redirect, Response};
 use axum::routing::{get, post};
 use axum::{Form, RequestPartsExt, Router};
-use rand::Rng;
 use serde::Deserialize;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio_postgres::NoTls;
-use totp_rs::TOTP;
 use tracing::{event, info, span, Instrument, Level};
 use uuid::Uuid;
 
@@ -217,24 +215,12 @@ async fn login(
     let user_id: Uuid = user.get(0);
     let password_phc: &str = user.get(1);
     let totp_secret: Option<&str> = user.get(2);
-    let password_hash = argon2::PasswordHash::new(password_phc).unwrap();
-    argon2::Argon2::default()
-        .verify_password(form.password.as_bytes(), &password_hash)
-        .unwrap();
+    verify_password(&form.password, password_phc).unwrap();
     if let Some(totp_secret) = totp_secret {
-        let rfc6238 = totp_rs::Rfc6238::new(
-            6,
-            totp_secret,
-            Some(app.config.site.name.clone()),
-            form.username.clone(),
-        )
-        .unwrap();
-        let totp = TOTP::from_rfc6238(rfc6238).unwrap();
-        let totp_checked = totp.check_current(&form.totp).unwrap();
-        assert!(totp_checked);
+        verify_totp(&form.totp, totp_secret, &form.username, &app.config).unwrap();
     }
-    let session_token: [u8; 128 / 8] = rand::thread_rng().gen();
-    let session_token_hex = hex::encode(session_token);
+    let session = auth::generate_session_token();
+    let session_token_hex = session.token_hex();
     app.database
         .execute(
             "INSERT INTO sessions (\"user\", token) VALUES ($1, $2)",
@@ -242,13 +228,8 @@ async fn login(
         )
         .await
         .unwrap();
-    (
-        AppendHeaders([(
-            SET_COOKIE,
-            format!("session={session_token_hex}; Secure; HttpOnly; SameSite=Strict"),
-        )]),
-        Redirect::to("/"),
-    )
+    let set_cookie = format!("session={session_token_hex}; Secure; HttpOnly; SameSite=Strict");
+    (AppendHeaders([(SET_COOKIE, set_cookie)]), Redirect::to("/"))
 }
 
 async fn logout(
@@ -280,16 +261,7 @@ async fn show_register_form(app: State<App>, maybe_auth: Option<Auth>) -> Html<S
 }
 
 async fn register(app: State<App>, form: Form<RegisterForm>) -> Redirect {
-    let password_kdf = argon2::Argon2::new(
-        argon2::Algorithm::Argon2id,
-        argon2::Version::V0x13,
-        argon2::Params::new(37 * 1024, 1, 1, None).unwrap(),
-    );
-    let salt = SaltString::generate(&mut rand::thread_rng());
-    let password_phc = password_kdf
-        .hash_password(form.password.as_bytes(), &salt)
-        .unwrap()
-        .to_string();
+    let password_phc = auth::generate_new_phc(&form.password);
     app.database
         .execute(
             "INSERT INTO users (username, password_phc) VALUES ($1, $2)",
@@ -332,20 +304,8 @@ async fn show_settings_totp(app: State<App>, auth: Auth) -> Html<String> {
         .await
         .unwrap();
     let totp_secret: &str = user.get(0);
-    let rfc6238 = totp_rs::Rfc6238::new(
-        6,
-        totp_secret,
-        Some(app.config.site.name.clone()),
-        auth.username().to_owned(),
-    )
-    .unwrap();
-    let totp = TOTP::from_rfc6238(rfc6238).unwrap();
-    let qr_base64 = totp.get_qr().unwrap();
-    wrap_html(
-        "TOTP settings",
-        &format!("<img src=\"data:image/png;base64, {qr_base64}\"/>"),
-        Some(auth),
-    )
+    let qr_html = auth::generate_totp_qr_html(totp_secret, auth.username(), &app.config);
+    wrap_html("TOTP settings", &qr_html, Some(auth))
 }
 
 async fn totp_enable(app: State<App>, auth: Auth) -> Redirect {
