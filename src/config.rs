@@ -9,6 +9,12 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use std::{env, fs};
 
+#[derive(Decode)]
+pub struct Site {
+    #[knuffel(child, unwrap(argument))]
+    pub name: String,
+}
+
 pub struct IpAddrWrapper(pub IpAddr);
 
 #[derive(Decode)]
@@ -27,6 +33,8 @@ pub struct Database {
 
 #[derive(Decode)]
 pub struct Config {
+    #[knuffel(child)]
+    pub site: Site,
     #[knuffel(child)]
     pub server: Server,
     #[knuffel(child)]

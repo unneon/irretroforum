@@ -2,6 +2,7 @@ mod config;
 mod sessions;
 mod view;
 
+use crate::config::Config;
 use crate::sessions::SessionCookie;
 use crate::view::wrap_html;
 use argon2::password_hash::SaltString;
@@ -25,6 +26,7 @@ use uuid::Uuid;
 #[derive(Clone)]
 struct App {
     database: Arc<tokio_postgres::Client>,
+    config: Arc<Config>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -57,7 +59,7 @@ async fn show_homepage(app: State<App>, session: SessionCookie) -> Html<String> 
         let forum_name: &str = forum.get(1);
         html += &format!("<a href=\"/forum/{forum_id}\">{forum_name}</a><br/>");
     }
-    wrap_html("Irretroforum", &html, session)
+    wrap_html(&app.config.site.name, &html, session)
 }
 
 async fn show_forum(
@@ -85,7 +87,11 @@ async fn show_forum(
         let thread_title: &str = thread.get(1);
         html += &format!("<a href=\"/thread/{thread_id}\">{thread_title}</a><br/>");
     }
-    wrap_html(&format!("{forum_name} at Irretroforum"), &html, session)
+    wrap_html(
+        &format!("{forum_name} at {}", app.config.site.name),
+        &html,
+        session,
+    )
 }
 
 async fn show_thread(
@@ -166,9 +172,9 @@ async fn show_user(
     )
 }
 
-async fn show_login_form(session: SessionCookie) -> Html<String> {
+async fn show_login_form(app: State<App>, session: SessionCookie) -> Html<String> {
     wrap_html(
-        "Log in to Irretroforum",
+        &format!("Log in to {}", app.config.site.name),
         include_str!("html/login-form.html"),
         session,
     )
@@ -197,7 +203,7 @@ async fn login(
         let rfc6238 = totp_rs::Rfc6238::new(
             6,
             totp_secret,
-            Some("Irretroforum".to_owned()),
+            Some(app.config.site.name.clone()),
             form.username.clone(),
         )
         .unwrap();
@@ -245,9 +251,9 @@ async fn logout(
     )
 }
 
-async fn show_register_form(session: SessionCookie) -> Html<String> {
+async fn show_register_form(app: State<App>, session: SessionCookie) -> Html<String> {
     wrap_html(
-        "Register on Irretroforum",
+        &format!("Register on {}", app.config.site.name),
         include_str!("html/register-form.html"),
         session,
     )
@@ -290,7 +296,11 @@ async fn show_settings(app: State<App>, session: SessionCookie) -> Html<String> 
         true => include_str!("html/settings-totp-enabled.html"),
         false => include_str!("html/settings-totp-disabled.html"),
     };
-    wrap_html("Irretroforum settings", &html, session)
+    wrap_html(
+        &format!("{} settings", app.config.site.name),
+        &html,
+        session,
+    )
 }
 
 async fn show_settings_totp(app: State<App>, session: SessionCookie) -> Html<String> {
@@ -305,7 +315,7 @@ async fn show_settings_totp(app: State<App>, session: SessionCookie) -> Html<Str
     let rfc6238 = totp_rs::Rfc6238::new(
         6,
         totp_secret,
-        Some("Irretroforum".to_owned()),
+        Some(app.config.site.name.clone()),
         username.to_owned(),
     )
     .unwrap();
@@ -363,12 +373,13 @@ async fn main() {
         .with_env_filter("irretroforum=debug")
         .finish();
     tracing::subscriber::set_global_default(subscriber).unwrap();
-    let config = config::load_config();
+    let config = Arc::new(config::load_config());
     let database = tokio_postgres::connect(&config.database.url, NoTls)
         .await
         .unwrap();
     let app = App {
         database: Arc::new(database.0),
+        config: config.clone(),
     };
     let router = Router::with_state(app)
         .route("/", get(show_homepage))
