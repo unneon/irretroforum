@@ -287,7 +287,7 @@ async fn main() {
         .route("/style.css", get(show_css))
         .layer(axum::middleware::from_fn(logging_middleware));
     tokio::spawn(database.1);
-    let listen_address = SocketAddr::new(config.server.address, config.server.port);
+    let listen_address = SocketAddr::new(config.server.address.0, config.server.port);
     info!("listening on http://{listen_address}");
     axum::Server::bind(&listen_address)
         .serve(router.into_make_service_with_connect_info::<SocketAddr>())
