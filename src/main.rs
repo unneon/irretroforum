@@ -1,9 +1,9 @@
+mod auth;
 mod config;
-mod sessions;
 mod view;
 
+use crate::auth::{Auth, Session};
 use crate::config::Config;
-use crate::sessions::SessionCookie;
 use crate::view::wrap_html;
 use argon2::password_hash::SaltString;
 use argon2::{PasswordHasher, PasswordVerifier};
@@ -47,7 +47,7 @@ struct RegisterForm {
     password: String,
 }
 
-async fn show_homepage(app: State<App>, session: SessionCookie) -> Html<String> {
+async fn show_homepage(app: State<App>, maybe_auth: Option<Auth>) -> Html<String> {
     let forums = app
         .database
         .query("SELECT id, name FROM forums", &[])
@@ -59,13 +59,13 @@ async fn show_homepage(app: State<App>, session: SessionCookie) -> Html<String> 
         let forum_name: &str = forum.get(1);
         html += &format!("<a href=\"/forum/{forum_id}\">{forum_name}</a><br/>");
     }
-    wrap_html(&app.config.site.name, &html, session)
+    wrap_html(&app.config.site.name, &html, maybe_auth)
 }
 
 async fn show_forum(
     Path(forum_id): Path<Uuid>,
     app: State<App>,
-    session: SessionCookie,
+    maybe_auth: Option<Auth>,
 ) -> Html<String> {
     let forum = app
         .database
@@ -90,14 +90,14 @@ async fn show_forum(
     wrap_html(
         &format!("{forum_name} at {}", app.config.site.name),
         &html,
-        session,
+        maybe_auth,
     )
 }
 
 async fn show_thread(
     Path(thread_id): Path<Uuid>,
     app: State<App>,
-    session: SessionCookie,
+    maybe_auth: Option<Auth>,
 ) -> Html<String> {
     let thread = app
         .database
@@ -157,20 +157,19 @@ async fn show_thread(
         include_str!("html/thread-post-form.html"),
         thread_id = thread_id
     );
-    wrap_html(thread_title, &html, session)
+    wrap_html(thread_title, &html, maybe_auth)
 }
 
 async fn post_in_thread(
     Path(thread_id): Path<Uuid>,
     app: State<App>,
-    session: SessionCookie,
+    auth: Auth,
     form: Form<PostInThreadForm>,
 ) -> Redirect {
-    let user_id: Uuid = session.user_id().unwrap();
     app.database
         .execute(
             "INSERT INTO posts (thread, author, content) VALUES ($1, $2, $3)",
-            &[&thread_id, &user_id, &form.content],
+            &[&thread_id, &auth.user_id(), &form.content],
         )
         .await
         .unwrap();
@@ -180,7 +179,7 @@ async fn post_in_thread(
 async fn show_user(
     Path(user_id): Path<Uuid>,
     app: State<App>,
-    session: SessionCookie,
+    maybe_auth: Option<Auth>,
 ) -> Html<String> {
     let user = app
         .database
@@ -191,15 +190,15 @@ async fn show_user(
     wrap_html(
         &format!("{user_username}'s profile"),
         &format!("<p>{user_username}</p>"),
-        session,
+        maybe_auth,
     )
 }
 
-async fn show_login_form(app: State<App>, session: SessionCookie) -> Html<String> {
+async fn show_login_form(app: State<App>, maybe_auth: Option<Auth>) -> Html<String> {
     wrap_html(
         &format!("Log in to {}", app.config.site.name),
         include_str!("html/login-form.html"),
-        session,
+        maybe_auth,
     )
 }
 
@@ -254,17 +253,15 @@ async fn login(
 
 async fn logout(
     app: State<App>,
-    session: SessionCookie,
+    session: Session,
 ) -> (AppendHeaders<HeaderName, &'static str, 1>, Redirect) {
-    if let Some(session_token_hex) = session.token_hex() {
-        app.database
-            .execute(
-                "DELETE FROM sessions WHERE token = $1",
-                &[&session_token_hex],
-            )
-            .await
-            .unwrap();
-    }
+    app.database
+        .execute(
+            "DELETE FROM sessions WHERE token = $1",
+            &[&session.token_hex()],
+        )
+        .await
+        .unwrap();
     (
         AppendHeaders([(
             SET_COOKIE,
@@ -274,11 +271,11 @@ async fn logout(
     )
 }
 
-async fn show_register_form(app: State<App>, session: SessionCookie) -> Html<String> {
+async fn show_register_form(app: State<App>, maybe_auth: Option<Auth>) -> Html<String> {
     wrap_html(
         &format!("Register on {}", app.config.site.name),
         include_str!("html/register-form.html"),
-        session,
+        maybe_auth,
     )
 }
 
@@ -303,13 +300,12 @@ async fn register(app: State<App>, form: Form<RegisterForm>) -> Redirect {
     Redirect::to("/")
 }
 
-async fn show_settings(app: State<App>, session: SessionCookie) -> Html<String> {
-    let user_id = session.user_id().unwrap();
+async fn show_settings(app: State<App>, auth: Auth) -> Html<String> {
     let user = app
         .database
         .query_one(
             "SELECT totp_secret IS NOT NULL FROM users WHERE id = $1",
-            &[&user_id],
+            &[&auth.user_id()],
         )
         .await
         .unwrap();
@@ -322,16 +318,17 @@ async fn show_settings(app: State<App>, session: SessionCookie) -> Html<String> 
     wrap_html(
         &format!("{} settings", app.config.site.name),
         &html,
-        session,
+        Some(auth),
     )
 }
 
-async fn show_settings_totp(app: State<App>, session: SessionCookie) -> Html<String> {
-    let user_id = session.user_id().unwrap();
-    let username = session.username().unwrap();
+async fn show_settings_totp(app: State<App>, auth: Auth) -> Html<String> {
     let user = app
         .database
-        .query_one("SELECT totp_secret FROM users WHERE id = $1", &[&user_id])
+        .query_one(
+            "SELECT totp_secret FROM users WHERE id = $1",
+            &[&auth.user_id()],
+        )
         .await
         .unwrap();
     let totp_secret: &str = user.get(0);
@@ -339,7 +336,7 @@ async fn show_settings_totp(app: State<App>, session: SessionCookie) -> Html<Str
         6,
         totp_secret,
         Some(app.config.site.name.clone()),
-        username.to_owned(),
+        auth.username().to_owned(),
     )
     .unwrap();
     let totp = TOTP::from_rfc6238(rfc6238).unwrap();
@@ -347,17 +344,16 @@ async fn show_settings_totp(app: State<App>, session: SessionCookie) -> Html<Str
     wrap_html(
         "TOTP settings",
         &format!("<img src=\"data:image/png;base64, {qr_base64}\"/>"),
-        session,
+        Some(auth),
     )
 }
 
-async fn totp_enable(app: State<App>, session: SessionCookie) -> Redirect {
-    let user_id = session.user_id().unwrap();
+async fn totp_enable(app: State<App>, auth: Auth) -> Redirect {
     let secret = totp_rs::Secret::generate_secret();
     app.database
         .execute(
             "UPDATE users SET totp_secret = $1 WHERE id = $2",
-            &[&secret.to_string(), &user_id],
+            &[&secret.to_string(), &auth.user_id()],
         )
         .await
         .unwrap();
