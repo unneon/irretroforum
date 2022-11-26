@@ -108,18 +108,42 @@ async fn show_thread(
     let posts = app
         .database
         .query(
-            "SELECT author, content FROM posts WHERE thread = $1",
+            "SELECT p.id, p.author, content, COUNT(r.author), emoji FROM posts p LEFT JOIN reacts r ON p.id = post WHERE thread = $1 GROUP BY p.id, p.author, content, emoji",
             &[&thread_id],
         )
         .await
         .unwrap();
+    let mut grouped_posts: Vec<(Uuid, Uuid, String, Vec<(String, usize)>)> = Vec::new();
     let mut html = String::new();
     for post in posts {
-        let user_id: Uuid = post.get(0);
-        let post_content: &str = post.get(1);
+        let post_id: Uuid = post.get(0);
+        let user_id: Uuid = post.get(1);
+        let post_content: String = post.get(2);
+        let react_count: usize = post.get::<_, i64>(3) as usize;
+        let react_emoji: Option<String> = post.get(4);
+        let mut found_post = false;
+        for post in &mut grouped_posts {
+            if post.0 == post_id {
+                if let Some(react_emoji) = &react_emoji {
+                    post.3.push((react_emoji.clone(), react_count));
+                }
+                found_post = true;
+                break;
+            }
+        }
+        if !found_post {
+            let reacts = if let Some(react_emoji) = react_emoji {
+                vec![(react_emoji, react_count)]
+            } else {
+                Vec::new()
+            };
+            grouped_posts.push((post_id, user_id, post_content, reacts));
+        }
+    }
+    for (_, author_id, post_content, reacts) in grouped_posts {
         let user = app
             .database
-            .query_one("SELECT username FROM users WHERE id = $1", &[&user_id])
+            .query_one("SELECT username FROM users WHERE id = $1", &[&author_id])
             .await
             .unwrap();
         let user_username: &str = user.get(0);
@@ -127,8 +151,16 @@ async fn show_thread(
             .chars()
             .filter(|c| c.is_ascii_alphanumeric() || c == &' ')
             .collect();
-        html +=
-            &format!("<a href=\"/user/{user_id}\">{user_username}</a>:<p>{safe_post_content}</p>");
+        html += &format!(
+            "<div><a href=\"/user/{author_id}\">{user_username}</a>:<p>{safe_post_content}</p>"
+        );
+        for (react_emoji, react_count) in reacts {
+            html += &format!("<span>{react_emoji}");
+            if react_count > 1 {
+                html += &format!(" {react_count}");
+            }
+            html += "</span></div>";
+        }
     }
     html += &format!(
         include_str!("html/thread-post-form.html"),

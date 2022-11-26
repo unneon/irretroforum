@@ -23,6 +23,13 @@ CREATE TABLE posts (
     content VARCHAR(8192) NOT NULL
 );
 
+CREATE TABLE reacts (
+    id UUID PRIMARY KEY NOT NULL DEFAULT gen_random_uuid(),
+    post UUID REFERENCES posts(id) NOT NULL,
+    author UUID REFERENCES users(id) NOT NULL,
+    emoji VARCHAR(8) NOT NULL
+);
+
 CREATE TABLE sessions (
     id UUID PRIMARY KEY NOT NULL DEFAULT gen_random_uuid(),
     "user" UUID REFERENCES users(id) NOT NULL,
