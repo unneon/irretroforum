@@ -1,9 +1,11 @@
 mod auth;
 mod config;
+mod error;
 mod view;
 
 use crate::auth::{verify_password, verify_totp, Auth, Session};
 use crate::config::Config;
+use crate::error::Result;
 use crate::view::wrap_html;
 use argon2::password_hash::SaltString;
 use argon2::{PasswordHasher, PasswordVerifier};
@@ -45,31 +47,29 @@ struct RegisterForm {
     password: String,
 }
 
-async fn show_homepage(app: State<App>, maybe_auth: Option<Auth>) -> Html<String> {
+async fn show_homepage(app: State<App>, maybe_auth: Option<Auth>) -> Result<Html<String>> {
     let forums = app
         .database
         .query("SELECT id, name FROM forums", &[])
-        .await
-        .unwrap();
+        .await?;
     let mut html = String::new();
     for forum in forums {
         let forum_id: Uuid = forum.get(0);
         let forum_name: &str = forum.get(1);
         html += &format!("<a href=\"/forum/{forum_id}\">{forum_name}</a><br/>");
     }
-    wrap_html(&app.config.site.name, &html, maybe_auth)
+    Ok(wrap_html(&app.config.site.name, &html, maybe_auth))
 }
 
 async fn show_forum(
     Path(forum_id): Path<Uuid>,
     app: State<App>,
     maybe_auth: Option<Auth>,
-) -> Html<String> {
+) -> Result<Html<String>> {
     let forum = app
         .database
         .query_one("SELECT name FROM forums WHERE id = $1", &[&forum_id])
-        .await
-        .unwrap();
+        .await?;
     let forum_name: &str = forum.get(0);
     let threads = app
         .database
@@ -77,31 +77,29 @@ async fn show_forum(
             "SELECT id, title FROM threads WHERE forum = $1",
             &[&forum_id],
         )
-        .await
-        .unwrap();
+        .await?;
     let mut html = String::new();
     for thread in threads {
         let thread_id: Uuid = thread.get(0);
         let thread_title: &str = thread.get(1);
         html += &format!("<a href=\"/thread/{thread_id}\">{thread_title}</a><br/>");
     }
-    wrap_html(
+    Ok(wrap_html(
         &format!("{forum_name} at {}", app.config.site.name),
         &html,
         maybe_auth,
-    )
+    ))
 }
 
 async fn show_thread(
     Path(thread_id): Path<Uuid>,
     app: State<App>,
     maybe_auth: Option<Auth>,
-) -> Html<String> {
+) -> Result<Html<String>> {
     let thread = app
         .database
         .query_one("SELECT title FROM threads WHERE id = $1", &[&thread_id])
-        .await
-        .unwrap();
+        .await?;
     let thread_title: &str = thread.get(0);
     let posts = app
         .database
@@ -122,8 +120,7 @@ async fn show_thread(
             "#,
             &[&thread_id],
         )
-        .await
-        .unwrap();
+        .await?;
     let mut html = String::new();
     for post in posts {
         let post_author: Uuid = post.get(0);
@@ -133,8 +130,7 @@ async fn show_thread(
         let author = app
             .database
             .query_one("SELECT username FROM users WHERE id = $1", &[&post_author])
-            .await
-            .unwrap();
+            .await?;
         let author_username: &str = author.get(0);
         let safe_post_content = html_escape::encode_text(post_content);
         html += &format!(
@@ -155,7 +151,7 @@ async fn show_thread(
         include_str!("html/thread-post-form.html"),
         thread_id = thread_id
     );
-    wrap_html(thread_title, &html, maybe_auth)
+    Ok(wrap_html(thread_title, &html, maybe_auth))
 }
 
 async fn post_in_thread(
@@ -163,33 +159,31 @@ async fn post_in_thread(
     app: State<App>,
     auth: Auth,
     form: Form<PostInThreadForm>,
-) -> Redirect {
+) -> Result<Redirect> {
     app.database
         .execute(
             "INSERT INTO posts (thread, author, content) VALUES ($1, $2, $3)",
             &[&thread_id, &auth.user_id(), &form.content],
         )
-        .await
-        .unwrap();
-    Redirect::to(&format!("/thread/{thread_id}"))
+        .await?;
+    Ok(Redirect::to(&format!("/thread/{thread_id}")))
 }
 
 async fn show_user(
     Path(user_id): Path<Uuid>,
     app: State<App>,
     maybe_auth: Option<Auth>,
-) -> Html<String> {
+) -> Result<Html<String>> {
     let user = app
         .database
         .query_one("SELECT username FROM users WHERE id = $1", &[&user_id])
-        .await
-        .unwrap();
+        .await?;
     let user_username: &str = user.get(0);
-    wrap_html(
+    Ok(wrap_html(
         &format!("{user_username}'s profile"),
         &format!("<p>{user_username}</p>"),
         maybe_auth,
-    )
+    ))
 }
 
 async fn show_login_form(app: State<App>, maybe_auth: Option<Auth>) -> Html<String> {
@@ -203,21 +197,20 @@ async fn show_login_form(app: State<App>, maybe_auth: Option<Auth>) -> Html<Stri
 async fn login(
     app: State<App>,
     form: Form<LogInForm>,
-) -> (AppendHeaders<HeaderName, String, 1>, Redirect) {
+) -> Result<(AppendHeaders<HeaderName, String, 1>, Redirect)> {
     let user = app
         .database
         .query_one(
             "SELECT id, password_phc, totp_secret FROM users WHERE username = $1",
             &[&form.username],
         )
-        .await
-        .unwrap();
+        .await?;
     let user_id: Uuid = user.get(0);
     let password_phc: &str = user.get(1);
     let totp_secret: Option<&str> = user.get(2);
-    verify_password(&form.password, password_phc).unwrap();
+    verify_password(&form.password, password_phc)?;
     if let Some(totp_secret) = totp_secret {
-        verify_totp(&form.totp, totp_secret, &form.username, &app.config).unwrap();
+        verify_totp(&form.totp, totp_secret, &form.username, &app.config)?;
     }
     let session = auth::generate_session_token();
     app.database
@@ -225,23 +218,21 @@ async fn login(
             "INSERT INTO sessions (\"user\", token) VALUES ($1, $2)",
             &[&user_id, &session.token_hex()],
         )
-        .await
-        .unwrap();
-    (AppendHeaders([session.set_cookie()]), Redirect::to("/"))
+        .await?;
+    Ok((AppendHeaders([session.set_cookie()]), Redirect::to("/")))
 }
 
 async fn logout(
     app: State<App>,
     session: Session,
-) -> (AppendHeaders<HeaderName, String, 1>, Redirect) {
+) -> Result<(AppendHeaders<HeaderName, String, 1>, Redirect)> {
     app.database
         .execute(
             "DELETE FROM sessions WHERE token = $1",
             &[&session.token_hex()],
         )
-        .await
-        .unwrap();
-    (AppendHeaders([session.unset_cookie()]), Redirect::to("/"))
+        .await?;
+    Ok((AppendHeaders([session.unset_cookie()]), Redirect::to("/")))
 }
 
 async fn show_register_form(app: State<App>, maybe_auth: Option<Auth>) -> Html<String> {
@@ -252,71 +243,70 @@ async fn show_register_form(app: State<App>, maybe_auth: Option<Auth>) -> Html<S
     )
 }
 
-async fn register(app: State<App>, form: Form<RegisterForm>) -> Redirect {
+async fn register(app: State<App>, form: Form<RegisterForm>) -> Result<Redirect> {
     let password_phc = auth::generate_new_phc(&form.password);
     app.database
         .execute(
             "INSERT INTO users (username, password_phc) VALUES ($1, $2)",
             &[&form.username, &password_phc],
         )
-        .await
-        .unwrap();
-    Redirect::to("/")
+        .await?;
+    Ok(Redirect::to("/"))
 }
 
-async fn show_settings(app: State<App>, auth: Auth) -> Html<String> {
+async fn show_settings(app: State<App>, auth: Auth) -> Result<Html<String>> {
     let user = app
         .database
         .query_one(
             "SELECT totp_secret IS NOT NULL FROM users WHERE id = $1",
             &[&auth.user_id()],
         )
-        .await
-        .unwrap();
+        .await?;
     let totp_enabled: bool = user.get(0);
     let mut html = String::new();
     html += match totp_enabled {
         true => include_str!("html/settings-totp-enabled.html"),
         false => include_str!("html/settings-totp-disabled.html"),
     };
-    wrap_html(
+    Ok(wrap_html(
         &format!("{} settings", app.config.site.name),
         &html,
         Some(auth),
-    )
+    ))
 }
 
-async fn show_settings_totp(app: State<App>, auth: Auth) -> Html<String> {
+async fn show_settings_totp(app: State<App>, auth: Auth) -> Result<Html<String>> {
     let user = app
         .database
         .query_one(
             "SELECT totp_secret FROM users WHERE id = $1",
             &[&auth.user_id()],
         )
-        .await
-        .unwrap();
+        .await?;
     let totp_secret: &str = user.get(0);
     let qr_html = auth::generate_totp_qr_html(totp_secret, auth.username(), &app.config);
-    wrap_html("TOTP settings", &qr_html, Some(auth))
+    Ok(wrap_html("TOTP settings", &qr_html, Some(auth)))
 }
 
-async fn totp_enable(app: State<App>, auth: Auth) -> Redirect {
+async fn totp_enable(app: State<App>, auth: Auth) -> Result<Redirect> {
     let secret = totp_rs::Secret::generate_secret();
     app.database
         .execute(
             "UPDATE users SET totp_secret = $1 WHERE id = $2",
             &[&secret.to_string(), &auth.user_id()],
         )
-        .await
-        .unwrap();
-    Redirect::to("/settings/totp")
+        .await?;
+    Ok(Redirect::to("/settings/totp"))
 }
 
 async fn show_css() -> &'static str {
     include_str!("css/style.css")
 }
 
-async fn logging_middleware<B>(req: Request<B>, next: Next<B>) -> Result<Response, StatusCode> {
+async fn logging_middleware<B>(
+    req: Request<B>,
+    next: Next<B>,
+) -> std::result::Result<Response, StatusCode> {
     let request_id = Uuid::new_v4();
     let span = span!(Level::INFO, "request", id = request_id.to_string());
     Ok(async move {
