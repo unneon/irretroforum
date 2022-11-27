@@ -220,22 +220,20 @@ async fn login(
         verify_totp(&form.totp, totp_secret, &form.username, &app.config).unwrap();
     }
     let session = auth::generate_session_token();
-    let session_token_hex = session.token_hex();
     app.database
         .execute(
             "INSERT INTO sessions (\"user\", token) VALUES ($1, $2)",
-            &[&user_id, &session_token_hex],
+            &[&user_id, &session.token_hex()],
         )
         .await
         .unwrap();
-    let set_cookie = format!("session={session_token_hex}; Secure; HttpOnly; SameSite=Strict");
-    (AppendHeaders([(SET_COOKIE, set_cookie)]), Redirect::to("/"))
+    (AppendHeaders([session.set_cookie()]), Redirect::to("/"))
 }
 
 async fn logout(
     app: State<App>,
     session: Session,
-) -> (AppendHeaders<HeaderName, &'static str, 1>, Redirect) {
+) -> (AppendHeaders<HeaderName, String, 1>, Redirect) {
     app.database
         .execute(
             "DELETE FROM sessions WHERE token = $1",
@@ -243,13 +241,7 @@ async fn logout(
         )
         .await
         .unwrap();
-    (
-        AppendHeaders([(
-            SET_COOKIE,
-            "session=; Max-Age=0; Secure; HttpOnly; SameSite=Strict",
-        )]),
-        Redirect::to("/"),
-    )
+    (AppendHeaders([session.unset_cookie()]), Redirect::to("/"))
 }
 
 async fn show_register_form(app: State<App>, maybe_auth: Option<Auth>) -> Html<String> {

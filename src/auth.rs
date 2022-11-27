@@ -1,8 +1,8 @@
-use crate::{App, Config, PasswordHasher, PasswordVerifier, Response, SaltString};
+use crate::{App, Config, PasswordHasher, PasswordVerifier, Response, SaltString, SET_COOKIE};
 use argon2::{Argon2, PasswordHash};
 use axum::extract::rejection::TypedHeaderRejectionReason;
 use axum::extract::FromRequestParts;
-use axum::headers::Cookie;
+use axum::headers::{Cookie, HeaderName};
 use axum::http::request::Parts;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
@@ -39,6 +39,15 @@ pub enum SessionError {
     InvalidSessionTokenFormat,
 }
 
+const SESSION_COOKIE_NAME: &str = "SESSION";
+
+// Parameters recommended by OWASP as of 2022-11-27.
+const ARGON2_M_COST_KB: u32 = 37 * 1024;
+const ARGON2_T_COST: u32 = 1;
+const ARGON2_P_COST: u32 = 1;
+const ARGON2_ALGORITHM: argon2::Algorithm = argon2::Algorithm::Argon2id;
+const ARGON2_VERSION: argon2::Version = argon2::Version::V0x13;
+
 impl Auth {
     pub fn user_id(&self) -> Uuid {
         self.user_id
@@ -52,6 +61,17 @@ impl Auth {
 impl Session {
     pub fn token_hex(&self) -> String {
         hex::encode(self.token)
+    }
+
+    pub fn set_cookie(&self) -> (HeaderName, String) {
+        let hex = self.token_hex();
+        let value = format!("{SESSION_COOKIE_NAME}={hex}; Secure; HttpOnly; SameSite=Strict");
+        (SET_COOKIE, value)
+    }
+
+    pub fn unset_cookie(&self) -> (HeaderName, String) {
+        let value = format!("{SESSION_COOKIE_NAME}=; Max-Age=0; Secure; HttpOnly; SameSite=Strict");
+        (SET_COOKIE, value)
     }
 }
 
@@ -89,7 +109,7 @@ impl<S: Send + Sync> FromRequestParts<S> for Session {
                 };
             }
         };
-        let token_hex = match cookie.get("session") {
+        let token_hex = match cookie.get(SESSION_COOKIE_NAME) {
             Some(token_hex) => token_hex,
             None => return Err(SessionError::Missing),
         };
@@ -153,9 +173,8 @@ pub fn generate_totp_qr_html(secret: &str, username: &str, config: &Config) -> S
 }
 
 fn make_password_kdf() -> Argon2<'static> {
-    // Parameters recommended by OWASP as of 2022-11-26.
-    let params = argon2::Params::new(37 * 1024, 1, 1, None).unwrap();
-    Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params)
+    let params = argon2::Params::new(ARGON2_M_COST_KB, ARGON2_T_COST, ARGON2_P_COST, None).unwrap();
+    Argon2::new(ARGON2_ALGORITHM, ARGON2_VERSION, params)
 }
 
 fn make_totp<'a>(secret: &'a str, username: &str, config: &Config) -> TOTP<&'a str> {
