@@ -1,5 +1,5 @@
+use crate::auth::Session;
 use crate::error::Result;
-use crate::Session;
 use tokio_postgres::{Client, Statement};
 use uuid::Uuid;
 
