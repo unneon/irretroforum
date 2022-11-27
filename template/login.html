@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}
+    Log in to {{ site.name }}
+{% endblock title %}
+{% block main %}
+    <form action="/login" method="post">
+        <label for="username">Username:</label>
+        <input type="text" name="username" id="username" required>
+        <label for="password">Password:</label>
+        <input type="password" name="password" id="password" required>
+        <label for="totp">TOTP code:</label>
+        <input type="text" name="totp" id="totp" inputmode="numeric" maxlength="6" pattern="[0-9]{0,6}">
+        <input type="submit" value="Log in">
+    </form>
+{% endblock main %}

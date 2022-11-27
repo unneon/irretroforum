@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}
+    {{ site.name }}
+{% endblock title %}
+{% block main %}
+    {% for forum in forums %}
+        <a href="/forum/{{ forum.id }}">{{ forum.name }}</a><br/>
+    {% endfor %}
+{% endblock main %}

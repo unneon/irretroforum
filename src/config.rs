@@ -4,12 +4,13 @@ use knuffel::errors::{DecodeError, ExpectedType};
 use knuffel::span::Spanned;
 use knuffel::traits::ErrorSpan;
 use knuffel::{Decode, DecodeScalar};
+use serde::Serialize;
 use std::net::{IpAddr, Ipv4Addr};
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::{env, fs};
 
-#[derive(Decode)]
+#[derive(Decode, Serialize)]
 pub struct Site {
     #[knuffel(child, unwrap(argument))]
     pub name: String,

@@ -11,9 +11,11 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::{async_trait, TypedHeader};
 use rand::Rng;
+use serde::Serialize;
 use totp_rs::TOTP;
 use uuid::Uuid;
 
+#[derive(Serialize)]
 pub struct Auth {
     user_id: Uuid,
     username: String,
@@ -169,10 +171,9 @@ pub fn generate_session_token() -> Session {
     Session { token }
 }
 
-pub fn generate_totp_qr_html(secret: &str, username: &str, config: &Config) -> String {
+pub fn generate_totp_qr(secret: &str, username: &str, config: &Config) -> String {
     let totp = make_totp(secret, username, config);
-    let qr_base64 = totp.get_qr().unwrap();
-    format!("<img src=\"data:image/png;base64, {qr_base64}\"/>")
+    totp.get_qr().unwrap()
 }
 
 fn make_password_kdf() -> Argon2<'static> {

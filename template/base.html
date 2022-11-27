@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <link rel="stylesheet" href="/style.css">
+        <title>
+            {% block title %}
+            {% endblock title %}
+        </title>
+    </head>
+    <body>
+        <div>
+            {% if auth %}
+                <p>Logged in as {{ auth.username }}</p>
+                <form action="/logout" method="post">
+                    <input type="submit" value="Log out">
+                </form>
+            {% else %}
+                <p>Not logged in</p>
+                <a href="/login">Log in</a><br/>
+                <a href="/register">Register</a><br/>
+            {% endif %}
+        </div>
+        {% block main %}
+        {% endblock main %}
+    </body>
+</html>

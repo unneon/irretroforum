@@ -8,7 +8,7 @@ use crate::auth::{verify_password, verify_totp, Auth, Session};
 use crate::config::Config;
 use crate::database::Database;
 use crate::error::Result;
-use crate::view::wrap_html;
+use crate::view::View;
 use axum::extract::{ConnectInfo, Path, State};
 use axum::http::header::HeaderName;
 use axum::http::{Request, StatusCode};
@@ -17,6 +17,8 @@ use axum::response::{AppendHeaders, Html, Redirect, Response};
 use axum::routing::{get, post};
 use axum::{Form, RequestPartsExt, Router};
 use serde::Deserialize;
+use std::collections::hash_map::Entry;
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio_postgres::NoTls;
@@ -26,6 +28,7 @@ use uuid::Uuid;
 #[derive(Clone)]
 struct App {
     database: Arc<Database>,
+    view: Arc<View>,
     config: Arc<Config>,
 }
 
@@ -49,11 +52,7 @@ struct RegisterForm {
 
 async fn show_homepage(app: State<App>, maybe_auth: Option<Auth>) -> Result<Html<String>> {
     let forums = app.database.all_forums().await?;
-    let mut html = String::new();
-    for forum in forums {
-        html += &format!("<a href=\"/forum/{}\">{}</a><br/>", forum.id, forum.name);
-    }
-    Ok(wrap_html(&app.config.site.name, &html, maybe_auth))
+    Ok(app.view.homepage(&forums, &maybe_auth))
 }
 
 async fn show_forum(
@@ -63,15 +62,7 @@ async fn show_forum(
 ) -> Result<Html<String>> {
     let forum = app.database.forum(forum_id).await?;
     let threads = app.database.forum_threads(forum.id).await?;
-    let mut html = String::new();
-    for thread in threads {
-        html += &format!(
-            "<a href=\"/thread/{}\">{}</a><br/>",
-            thread.id, thread.title
-        );
-    }
-    let title = format!("{} at {}", forum.name, app.config.site.name);
-    Ok(wrap_html(&title, &html, maybe_auth))
+    Ok(app.view.forum(&forum, &threads, &maybe_auth))
 }
 
 async fn show_thread(
@@ -81,28 +72,14 @@ async fn show_thread(
 ) -> Result<Html<String>> {
     let thread = app.database.thread(thread_id).await?;
     let posts = app.database.thread_posts(thread.id).await?;
-    let mut html = String::new();
-    for post in posts {
-        let author = app.database.user(post.author).await?;
-        let safe_post_content = html_escape::encode_text(&post.content);
-        html += &format!(
-            "<div><a href=\"/user/{}\">{}</a>:<p>{safe_post_content}</p>",
-            author.id, author.username
-        );
-        for react in post.reacts {
-            html += &format!("<span>{}", react.emoji);
-            if react.count > 1 {
-                html += &format!(" {}", react.count);
-            }
-            html += "</span>";
+    let mut users = HashMap::new();
+    for post in &posts {
+        if let Entry::Vacant(v) = users.entry(post.author) {
+            let author = app.database.user(post.author).await?;
+            v.insert(author);
         }
-        html += "</div>";
     }
-    html += &format!(
-        include_str!("html/thread-post-form.html"),
-        thread_id = thread.id
-    );
-    Ok(wrap_html(&thread.title, &html, maybe_auth))
+    Ok(app.view.thread(&thread, &posts, &users, &maybe_auth))
 }
 
 async fn post_in_thread(
@@ -123,14 +100,11 @@ async fn show_user(
     maybe_auth: Option<Auth>,
 ) -> Result<Html<String>> {
     let user = app.database.user(user_id).await?;
-    let title = format!("{}'s profile", user.username);
-    let html = format!("<p>{}</p>", user.username);
-    Ok(wrap_html(&title, &html, maybe_auth))
+    Ok(app.view.user(&user, &maybe_auth))
 }
 
 async fn show_login_form(app: State<App>, maybe_auth: Option<Auth>) -> Html<String> {
-    let title = format!("Log in to {}", app.config.site.name);
-    wrap_html(&title, include_str!("html/login-form.html"), maybe_auth)
+    app.view.login(&maybe_auth)
 }
 
 async fn login(
@@ -156,8 +130,7 @@ async fn logout(
 }
 
 async fn show_register_form(app: State<App>, maybe_auth: Option<Auth>) -> Html<String> {
-    let title = format!("Register on {}", app.config.site.name);
-    wrap_html(&title, include_str!("html/register-form.html"), maybe_auth)
+    app.view.register(&maybe_auth)
 }
 
 async fn register(
@@ -176,19 +149,14 @@ async fn register(
 
 async fn show_settings(app: State<App>, auth: Auth) -> Result<Html<String>> {
     let settings = app.database.settings(auth.user_id()).await?;
-    let html = match settings.totp_enabled {
-        true => include_str!("html/settings-totp-enabled.html"),
-        false => include_str!("html/settings-totp-disabled.html"),
-    };
-    let title = format!("{} settings", app.config.site.name);
-    Ok(wrap_html(&title, html, Some(auth)))
+    Ok(app.view.settings(&settings, &Some(auth)))
 }
 
 async fn show_settings_totp(app: State<App>, auth: Auth) -> Result<Html<String>> {
     let user = app.database.user_totp(auth.user_id()).await?;
-    let qr_html =
-        auth::generate_totp_qr_html(&user.totp_secret.unwrap(), auth.username(), &app.config);
-    Ok(wrap_html("TOTP settings", &qr_html, Some(auth)))
+    let qr_png_base64 =
+        auth::generate_totp_qr(&user.totp_secret.unwrap(), auth.username(), &app.config);
+    Ok(app.view.settings_totp(&qr_png_base64, &Some(auth)))
 }
 
 async fn totp_enable(app: State<App>, auth: Auth) -> Result<Redirect> {
@@ -240,8 +208,10 @@ async fn main() {
         .unwrap();
     tokio::spawn(database_connection.1);
     let database = Arc::new(Database::new(database_connection.0).await.unwrap());
+    let view = Arc::new(View::new(config.clone()));
     let app = App {
         database,
+        view,
         config: config.clone(),
     };
     let router = Router::with_state(app)

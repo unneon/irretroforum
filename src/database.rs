@@ -1,5 +1,6 @@
 use crate::auth::Session;
 use crate::error::Result;
+use serde::Serialize;
 use tokio_postgres::{Client, Statement};
 use uuid::Uuid;
 
@@ -26,11 +27,13 @@ struct Statements {
     user_totp_update: Statement,
 }
 
+#[derive(Serialize)]
 pub struct Forum {
     pub id: Uuid,
     pub name: String,
 }
 
+#[derive(Serialize)]
 pub struct React {
     pub emoji: String,
     pub count: usize,
@@ -41,20 +44,24 @@ pub struct SessionUser {
     pub username: String,
 }
 
+#[derive(Serialize)]
 pub struct Settings {
     pub totp_enabled: bool,
 }
 
+#[derive(Serialize)]
 pub struct User {
     pub id: Uuid,
     pub username: String,
 }
 
+#[derive(Serialize)]
 pub struct Thread {
     pub id: Uuid,
     pub title: String,
 }
 
+#[derive(Serialize)]
 pub struct ThreadPost {
     pub author: Uuid,
     pub content: String,

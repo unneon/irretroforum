@@ -1,0 +1,7 @@
+{% extends "base.html" %}
+{% block title %}
+    TOTP settings
+{% endblock title %}
+{% block main %}
+    <img src="data:image/png;base64, {{ qr_png_base64 | safe }}"/>
+{% endblock main %}

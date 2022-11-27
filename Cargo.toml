@@ -11,6 +11,7 @@ html-escape = "0.2"
 knuffel = { version = "2.0", features = ["derive"], default-features = false }
 rand = "0.8"
 serde = { version = "1.0", features = ["derive"] }
+tera = { version = "1.0", default-features = false }
 tokio = { version = "1.21", features = ["macros", "rt-multi-thread"] }
 tokio-postgres = { version = "0.7", features = ["with-uuid-1"] }
 totp-rs = { version = "3.1", features = ["qr", "gen_secret"] }
