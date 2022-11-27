@@ -162,12 +162,18 @@ async fn show_register_form(app: State<App>, maybe_auth: Option<Auth>) -> Html<S
     wrap_html(&title, include_str!("html/register-form.html"), maybe_auth)
 }
 
-async fn register(app: State<App>, form: Form<RegisterForm>) -> Result<Redirect> {
+async fn register(
+    app: State<App>,
+    form: Form<RegisterForm>,
+) -> Result<(AppendHeaders<HeaderName, String, 1>, Redirect)> {
     let password_phc = auth::generate_new_phc(&form.password);
-    app.database
+    let user = app
+        .database
         .user_insert(&form.username, &password_phc)
         .await?;
-    Ok(Redirect::to("/"))
+    let session = auth::generate_session_token();
+    app.database.session_insert(user.id, &session).await?;
+    Ok((AppendHeaders([session.set_cookie()]), Redirect::to("/")))
 }
 
 async fn show_settings(app: State<App>, auth: Auth) -> Result<Html<String>> {

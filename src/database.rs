@@ -221,11 +221,15 @@ impl Database {
         })
     }
 
-    pub async fn user_insert(&self, username: &str, password_phc: &str) -> Result<()> {
-        self.client
-            .execute(&self.statements.user_insert, &[&username, &password_phc])
+    pub async fn user_insert(&self, username: &str, password_phc: &str) -> Result<User> {
+        let row = self
+            .client
+            .query_one(&self.statements.user_insert, &[&username, &password_phc])
             .await?;
-        Ok(())
+        Ok(User {
+            id: row.get(0),
+            username: username.to_owned(),
+        })
     }
 
     pub async fn user_totp(&self, id: Uuid) -> Result<UserTotp> {
@@ -296,7 +300,7 @@ impl Statements {
             .prepare("SELECT id, password_phc, totp_secret FROM users WHERE username = $1")
             .await?;
         let user_insert = client
-            .prepare("INSERT INTO users (username, password_phc) VALUES ($1, $2)")
+            .prepare("INSERT INTO users (username, password_phc) VALUES ($1, $2) RETURNING id")
             .await?;
         let user_totp = client
             .prepare("SELECT totp_secret FROM users WHERE id = $1")
