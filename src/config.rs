@@ -8,7 +8,6 @@ use serde::Serialize;
 use std::net::{IpAddr, Ipv4Addr};
 use std::path::PathBuf;
 use std::str::FromStr;
-use std::{env, fs};
 
 #[derive(Decode, Serialize)]
 pub struct Site {
@@ -70,7 +69,7 @@ impl<S: ErrorSpan> DecodeScalar<S> for IpAddrWrapper {
 }
 
 pub fn load_config() -> Config {
-    let path = PathBuf::from(env::args().nth(1).unwrap());
-    let text = fs::read_to_string(&path).unwrap();
+    let path = PathBuf::from(std::env::args().nth(1).unwrap());
+    let text = std::fs::read_to_string(&path).unwrap();
     knuffel::parse(path.to_str().unwrap(), &text).unwrap()
 }

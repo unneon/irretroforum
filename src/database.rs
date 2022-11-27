@@ -1,9 +1,10 @@
 use crate::app::Resources;
 use crate::auth::Session;
+use crate::config::Config;
 use crate::error::Result;
 use serde::Serialize;
 use std::sync::Arc;
-use tokio_postgres::{Client, Statement};
+use tokio_postgres::{Client, NoTls, Statement};
 use uuid::Uuid;
 
 pub struct Database {
@@ -366,4 +367,12 @@ impl Statements {
             user_totp_update,
         })
     }
+}
+
+pub async fn connect(config: &Config) -> Client {
+    let (client, connection) = tokio_postgres::connect(&config.database.url, NoTls)
+        .await
+        .unwrap();
+    tokio::spawn(connection);
+    client
 }
