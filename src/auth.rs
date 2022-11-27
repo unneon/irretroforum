@@ -24,7 +24,6 @@ pub enum AuthError {
     NotLoggedIn,
     InvalidHeader,
     InvalidSessionTokenFormat,
-    InvalidSessionToken,
 }
 
 #[derive(Debug)]
@@ -79,8 +78,8 @@ impl Session {
 impl FromRequestParts<App> for Auth {
     type Rejection = AuthError;
 
-    async fn from_request_parts(parts: &mut Parts, state: &App) -> Result<Self, Self::Rejection> {
-        let session = match Session::from_request_parts(parts, state).await {
+    async fn from_request_parts(parts: &mut Parts, app: &App) -> Result<Self, Self::Rejection> {
+        let session = match Session::from_request_parts(parts, app).await {
             Ok(session) => session,
             Err(SessionError::Missing) => return Err(AuthError::NotLoggedIn),
             Err(SessionError::InvalidHeader) => return Err(AuthError::InvalidHeader),
@@ -88,10 +87,11 @@ impl FromRequestParts<App> for Auth {
                 return Err(AuthError::InvalidSessionTokenFormat);
             }
         };
-        let user = state.database.query_one("SELECT u.id, username FROM users u, sessions s WHERE u.id = s.\"user\" AND s.token = $1", &[&session.token_hex()]).await.map_err(|_| AuthError::InvalidSessionToken)?;
-        let user_id = user.get(0);
-        let username = user.get(1);
-        Ok(Auth { user_id, username })
+        let user = app.database.session_user(&session).await.unwrap();
+        Ok(Auth {
+            user_id: user.user_id,
+            username: user.username,
+        })
     }
 }
 

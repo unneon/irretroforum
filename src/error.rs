@@ -2,6 +2,7 @@ use crate::auth::LogInError;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 
+#[derive(Debug)]
 pub enum Error {
     LogInError(LogInError),
     DatabaseError(tokio_postgres::Error),
