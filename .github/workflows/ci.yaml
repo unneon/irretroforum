@@ -6,10 +6,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
+    - name: Build
+      run: cargo build
     - name: Test
-      uses: actions-rs/cargo@v1
-      with:
-        command: test
+      run: cargo test
   format:
     name: Format
     runs-on: ubuntu-latest
@@ -17,10 +17,7 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - name: Verify formatter
-      uses: actions-rs/cargo@v1
-      with:
-        command: fmt
-        args: -- --check
+      run: cargo fmt -- --check
   lint:
     name: Lint
     runs-on: ubuntu-latest
@@ -28,7 +25,4 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - name: Verify linter
-      uses: actions-rs/cargo@v1
-      with:
-        command: clippy
-        args: -- -D warnings
+      run: cargo clippy -- -D warnings

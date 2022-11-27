@@ -147,7 +147,7 @@ async fn main() {
     let config = config::load_config();
     let listen_address = SocketAddr::new(config.server.address.0, config.server.port);
     let state = Arc::new(Resources::new(config).await);
-    let router = Router::with_state(state)
+    let router = Router::new()
         .route("/", get(show_homepage))
         .route("/forum/:id", get(show_forum))
         .route("/thread/:id", get(show_thread))
@@ -160,7 +160,8 @@ async fn main() {
         .route("/settings/totp", get(show_settings_totp))
         .route("/settings/totp/enable", post(totp_enable))
         .route("/style.css", get(show_css))
-        .layer(axum::middleware::from_fn(logging_middleware));
+        .layer(axum::middleware::from_fn(logging_middleware))
+        .with_state(state);
     info!("listening on http://{listen_address}");
     axum::Server::bind(&listen_address)
         .serve(router.into_make_service_with_connect_info::<SocketAddr>())
