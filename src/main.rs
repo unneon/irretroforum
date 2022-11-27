@@ -1,19 +1,19 @@
+mod app;
 mod auth;
 mod config;
 mod database;
 mod error;
 mod view;
 
+use crate::app::{App, Resources};
 use crate::auth::{verify_password, verify_totp, Auth, Session};
-use crate::config::Config;
-use crate::database::Database;
+use crate::database::Statements;
 use crate::error::Result;
-use crate::view::View;
-use axum::extract::{ConnectInfo, Path, State};
-use axum::http::header::HeaderName;
+use crate::view::make_tera;
+use axum::extract::{ConnectInfo, Path};
 use axum::http::{Request, StatusCode};
 use axum::middleware::Next;
-use axum::response::{AppendHeaders, Html, Redirect, Response};
+use axum::response::{AppendHeaders, Html, IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
 use axum::{Form, RequestPartsExt, Router};
 use serde::Deserialize;
@@ -24,13 +24,6 @@ use std::sync::Arc;
 use tokio_postgres::NoTls;
 use tracing::{event, info, span, Instrument, Level};
 use uuid::Uuid;
-
-#[derive(Clone)]
-struct App {
-    database: Arc<Database>,
-    view: Arc<View>,
-    config: Arc<Config>,
-}
 
 #[derive(Debug, Deserialize)]
 struct PostInThreadForm {
@@ -50,27 +43,19 @@ struct RegisterForm {
     password: String,
 }
 
-async fn show_homepage(app: State<App>, maybe_auth: Option<Auth>) -> Result<Html<String>> {
+async fn show_homepage(app: App) -> Result<Html<String>> {
     let forums = app.database.all_forums().await?;
-    Ok(app.view.homepage(&forums, &maybe_auth))
+    Ok(app.view.homepage(&forums))
 }
 
-async fn show_forum(
-    Path(forum_id): Path<Uuid>,
-    app: State<App>,
-    maybe_auth: Option<Auth>,
-) -> Result<Html<String>> {
-    let forum = app.database.forum(forum_id).await?;
+async fn show_forum(forum_id: Path<Uuid>, app: App) -> Result<Html<String>> {
+    let forum = app.database.forum(*forum_id).await?;
     let threads = app.database.forum_threads(forum.id).await?;
-    Ok(app.view.forum(&forum, &threads, &maybe_auth))
+    Ok(app.view.forum(&forum, &threads))
 }
 
-async fn show_thread(
-    Path(thread_id): Path<Uuid>,
-    app: State<App>,
-    maybe_auth: Option<Auth>,
-) -> Result<Html<String>> {
-    let thread = app.database.thread(thread_id).await?;
+async fn show_thread(thread_id: Path<Uuid>, app: App) -> Result<Html<String>> {
+    let thread = app.database.thread(*thread_id).await?;
     let posts = app.database.thread_posts(thread.id).await?;
     let mut users = HashMap::new();
     for post in &posts {
@@ -79,38 +64,31 @@ async fn show_thread(
             v.insert(author);
         }
     }
-    Ok(app.view.thread(&thread, &posts, &users, &maybe_auth))
+    Ok(app.view.thread(&thread, &posts, &users))
 }
 
 async fn post_in_thread(
-    Path(thread): Path<Uuid>,
-    app: State<App>,
+    thread: Path<Uuid>,
     auth: Auth,
+    app: App,
     form: Form<PostInThreadForm>,
 ) -> Result<Redirect> {
     app.database
-        .post_insert(thread, auth.user_id(), &form.content)
+        .post_insert(*thread, auth.user_id(), &form.content)
         .await?;
-    Ok(Redirect::to(&format!("/thread/{thread}")))
+    Ok(Redirect::to(&format!("/thread/{}", *thread)))
 }
 
-async fn show_user(
-    Path(user_id): Path<Uuid>,
-    app: State<App>,
-    maybe_auth: Option<Auth>,
-) -> Result<Html<String>> {
-    let user = app.database.user(user_id).await?;
-    Ok(app.view.user(&user, &maybe_auth))
+async fn show_user(user_id: Path<Uuid>, app: App) -> Result<Html<String>> {
+    let user = app.database.user(*user_id).await?;
+    Ok(app.view.user(&user))
 }
 
-async fn show_login_form(app: State<App>, maybe_auth: Option<Auth>) -> Html<String> {
-    app.view.login(&maybe_auth)
+async fn show_login_form(app: App) -> Html<String> {
+    app.view.login()
 }
 
-async fn login(
-    app: State<App>,
-    form: Form<LogInForm>,
-) -> Result<(AppendHeaders<HeaderName, String, 1>, Redirect)> {
+async fn login(app: App, form: Form<LogInForm>) -> Result<impl IntoResponse> {
     let user = app.database.user_auth(&form.username).await?;
     verify_password(&form.password, &user.password_phc)?;
     if let Some(totp_secret) = user.totp_secret {
@@ -121,22 +99,16 @@ async fn login(
     Ok((AppendHeaders([session.set_cookie()]), Redirect::to("/")))
 }
 
-async fn logout(
-    app: State<App>,
-    session: Session,
-) -> Result<(AppendHeaders<HeaderName, String, 1>, Redirect)> {
+async fn logout(session: Session, app: App) -> Result<impl IntoResponse> {
     app.database.session_delete(&session).await?;
     Ok((AppendHeaders([session.unset_cookie()]), Redirect::to("/")))
 }
 
-async fn show_register_form(app: State<App>, maybe_auth: Option<Auth>) -> Html<String> {
-    app.view.register(&maybe_auth)
+async fn show_register_form(app: App) -> Html<String> {
+    app.view.register()
 }
 
-async fn register(
-    app: State<App>,
-    form: Form<RegisterForm>,
-) -> Result<(AppendHeaders<HeaderName, String, 1>, Redirect)> {
+async fn register(app: App, form: Form<RegisterForm>) -> Result<impl IntoResponse> {
     let password_phc = auth::generate_new_phc(&form.password);
     let user = app
         .database
@@ -147,19 +119,19 @@ async fn register(
     Ok((AppendHeaders([session.set_cookie()]), Redirect::to("/")))
 }
 
-async fn show_settings(app: State<App>, auth: Auth) -> Result<Html<String>> {
+async fn show_settings(auth: Auth, app: App) -> Result<Html<String>> {
     let settings = app.database.settings(auth.user_id()).await?;
-    Ok(app.view.settings(&settings, &Some(auth)))
+    Ok(app.view.settings(&settings))
 }
 
-async fn show_settings_totp(app: State<App>, auth: Auth) -> Result<Html<String>> {
+async fn show_settings_totp(auth: Auth, app: App) -> Result<Html<String>> {
     let user = app.database.user_totp(auth.user_id()).await?;
     let qr_png_base64 =
         auth::generate_totp_qr(&user.totp_secret.unwrap(), auth.username(), &app.config);
-    Ok(app.view.settings_totp(&qr_png_base64, &Some(auth)))
+    Ok(app.view.settings_totp(&qr_png_base64))
 }
 
-async fn totp_enable(app: State<App>, auth: Auth) -> Result<Redirect> {
+async fn totp_enable(auth: Auth, app: App) -> Result<Redirect> {
     let secret = totp_rs::Secret::generate_secret();
     app.database
         .user_totp_update(auth.user_id(), &secret.to_string())
@@ -203,18 +175,21 @@ async fn main() {
         .finish();
     tracing::subscriber::set_global_default(subscriber).unwrap();
     let config = Arc::new(config::load_config());
-    let database_connection = tokio_postgres::connect(&config.database.url, NoTls)
+    let (client, db_conn) = tokio_postgres::connect(&config.database.url, NoTls)
         .await
         .unwrap();
-    tokio::spawn(database_connection.1);
-    let database = Arc::new(Database::new(database_connection.0).await.unwrap());
-    let view = Arc::new(View::new(config.clone()));
-    let app = App {
-        database,
-        view,
-        config: config.clone(),
+    tokio::spawn(db_conn);
+    let listen_address = SocketAddr::new(config.server.address.0, config.server.port);
+    let statements = Statements::new(&client).await.unwrap();
+    let tera = make_tera();
+    let resources = Resources {
+        client,
+        statements,
+        tera,
+        config,
     };
-    let router = Router::with_state(app)
+    let state = Arc::new(resources);
+    let router = Router::with_state(state)
         .route("/", get(show_homepage))
         .route("/forum/:id", get(show_forum))
         .route("/thread/:id", get(show_thread))
@@ -228,7 +203,6 @@ async fn main() {
         .route("/settings/totp/enable", post(totp_enable))
         .route("/style.css", get(show_css))
         .layer(axum::middleware::from_fn(logging_middleware));
-    let listen_address = SocketAddr::new(config.server.address.0, config.server.port);
     info!("listening on http://{listen_address}");
     axum::Server::bind(&listen_address)
         .serve(router.into_make_service_with_connect_info::<SocketAddr>())

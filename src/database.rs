@@ -1,15 +1,16 @@
+use crate::app::Resources;
 use crate::auth::Session;
 use crate::error::Result;
 use serde::Serialize;
+use std::sync::Arc;
 use tokio_postgres::{Client, Statement};
 use uuid::Uuid;
 
 pub struct Database {
-    client: Client,
-    statements: Statements,
+    resources: Arc<Resources>,
 }
 
-struct Statements {
+pub struct Statements {
     all_forums: Statement,
     forum: Statement,
     forum_threads: Statement,
@@ -80,13 +81,16 @@ pub struct UserTotp {
 }
 
 impl Database {
-    pub async fn new(client: Client) -> Result<Database> {
-        let statements = Statements::new(&client).await?;
-        Ok(Database { client, statements })
+    pub fn new(resources: Arc<Resources>) -> Database {
+        Database { resources }
     }
 
     pub async fn all_forums(&self) -> Result<Vec<Forum>> {
-        let rows = self.client.query(&self.statements.all_forums, &[]).await?;
+        let rows = self
+            .resources
+            .client
+            .query(&self.resources.statements.all_forums, &[])
+            .await?;
         let forums = rows
             .into_iter()
             .map(|row| Forum {
@@ -99,8 +103,9 @@ impl Database {
 
     pub async fn forum(&self, id: Uuid) -> Result<Forum> {
         let row = self
+            .resources
             .client
-            .query_one(&self.statements.forum, &[&id])
+            .query_one(&self.resources.statements.forum, &[&id])
             .await?;
         Ok(Forum {
             id,
@@ -110,8 +115,9 @@ impl Database {
 
     pub async fn forum_threads(&self, forum_id: Uuid) -> Result<Vec<Thread>> {
         let rows = self
+            .resources
             .client
-            .query(&self.statements.forum_threads, &[&forum_id])
+            .query(&self.resources.statements.forum_threads, &[&forum_id])
             .await?;
         let threads = rows
             .into_iter()
@@ -124,23 +130,32 @@ impl Database {
     }
 
     pub async fn post_insert(&self, thread: Uuid, author: Uuid, content: &str) -> Result<()> {
-        self.client
-            .execute(&self.statements.post_insert, &[&thread, &author, &content])
+        self.resources
+            .client
+            .execute(
+                &self.resources.statements.post_insert,
+                &[&thread, &author, &content],
+            )
             .await?;
         Ok(())
     }
 
     pub async fn session_delete(&self, session: &Session) -> Result<()> {
-        self.client
-            .execute(&self.statements.session_delete, &[&session.token_hex()])
+        self.resources
+            .client
+            .execute(
+                &self.resources.statements.session_delete,
+                &[&session.token_hex()],
+            )
             .await?;
         Ok(())
     }
 
     pub async fn session_insert(&self, user: Uuid, session: &Session) -> Result<()> {
-        self.client
+        self.resources
+            .client
             .execute(
-                &self.statements.session_insert,
+                &self.resources.statements.session_insert,
                 &[&user, &session.token_hex()],
             )
             .await?;
@@ -149,8 +164,12 @@ impl Database {
 
     pub async fn session_user(&self, session: &Session) -> Result<SessionUser> {
         let row = self
+            .resources
             .client
-            .query_one(&self.statements.session_user, &[&session.token_hex()])
+            .query_one(
+                &self.resources.statements.session_user,
+                &[&session.token_hex()],
+            )
             .await?;
         Ok(SessionUser {
             user_id: row.get(0),
@@ -160,8 +179,9 @@ impl Database {
 
     pub async fn settings(&self, user: Uuid) -> Result<Settings> {
         let row = self
+            .resources
             .client
-            .query_one(&self.statements.settings, &[&user])
+            .query_one(&self.resources.statements.settings, &[&user])
             .await?;
         Ok(Settings {
             totp_enabled: row.get(0),
@@ -170,8 +190,9 @@ impl Database {
 
     pub async fn thread(&self, id: Uuid) -> Result<Thread> {
         let row = self
+            .resources
             .client
-            .query_one(&self.statements.thread, &[&id])
+            .query_one(&self.resources.statements.thread, &[&id])
             .await?;
         Ok(Thread {
             id,
@@ -181,8 +202,9 @@ impl Database {
 
     pub async fn thread_posts(&self, thread_id: Uuid) -> Result<Vec<ThreadPost>> {
         let rows = self
+            .resources
             .client
-            .query(&self.statements.thread_posts, &[&thread_id])
+            .query(&self.resources.statements.thread_posts, &[&thread_id])
             .await?;
         let posts = rows
             .into_iter()
@@ -209,7 +231,11 @@ impl Database {
     }
 
     pub async fn user(&self, id: Uuid) -> Result<User> {
-        let row = self.client.query_one(&self.statements.user, &[&id]).await?;
+        let row = self
+            .resources
+            .client
+            .query_one(&self.resources.statements.user, &[&id])
+            .await?;
         Ok(User {
             id,
             username: row.get(0),
@@ -218,8 +244,9 @@ impl Database {
 
     pub async fn user_auth(&self, username: &str) -> Result<UserAuth> {
         let row = self
+            .resources
             .client
-            .query_one(&self.statements.user_auth, &[&username])
+            .query_one(&self.resources.statements.user_auth, &[&username])
             .await?;
         Ok(UserAuth {
             id: row.get(0),
@@ -230,8 +257,12 @@ impl Database {
 
     pub async fn user_insert(&self, username: &str, password_phc: &str) -> Result<User> {
         let row = self
+            .resources
             .client
-            .query_one(&self.statements.user_insert, &[&username, &password_phc])
+            .query_one(
+                &self.resources.statements.user_insert,
+                &[&username, &password_phc],
+            )
             .await?;
         Ok(User {
             id: row.get(0),
@@ -241,8 +272,9 @@ impl Database {
 
     pub async fn user_totp(&self, id: Uuid) -> Result<UserTotp> {
         let row = self
+            .resources
             .client
-            .query_one(&self.statements.user_totp, &[&id])
+            .query_one(&self.resources.statements.user_totp, &[&id])
             .await?;
         Ok(UserTotp {
             id,
@@ -251,15 +283,16 @@ impl Database {
     }
 
     pub async fn user_totp_update(&self, id: Uuid, secret: &str) -> Result<()> {
-        self.client
-            .execute(&self.statements.user_totp_update, &[&secret, &id])
+        self.resources
+            .client
+            .execute(&self.resources.statements.user_totp_update, &[&secret, &id])
             .await?;
         Ok(())
     }
 }
 
 impl Statements {
-    async fn new(client: &Client) -> Result<Statements> {
+    pub async fn new(client: &Client) -> Result<Statements> {
         let all_forums = client.prepare("SELECT id, name FROM forums").await?;
         let forum = client
             .prepare("SELECT name FROM forums WHERE id = $1")

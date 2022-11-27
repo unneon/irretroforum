@@ -1,5 +1,6 @@
+use crate::app::Resources;
 use crate::config::Config;
-use crate::App;
+use crate::database::Database;
 use argon2::password_hash::SaltString;
 use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
 use axum::extract::rejection::TypedHeaderRejectionReason;
@@ -12,6 +13,7 @@ use axum::response::{IntoResponse, Response};
 use axum::{async_trait, TypedHeader};
 use rand::Rng;
 use serde::Serialize;
+use std::sync::Arc;
 use totp_rs::TOTP;
 use uuid::Uuid;
 
@@ -80,11 +82,14 @@ impl Session {
 }
 
 #[async_trait]
-impl FromRequestParts<App> for Auth {
+impl FromRequestParts<Arc<Resources>> for Auth {
     type Rejection = AuthError;
 
-    async fn from_request_parts(parts: &mut Parts, app: &App) -> Result<Self, Self::Rejection> {
-        let session = match Session::from_request_parts(parts, app).await {
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &Arc<Resources>,
+    ) -> Result<Self, Self::Rejection> {
+        let session = match Session::from_request_parts(parts, state).await {
             Ok(session) => session,
             Err(SessionError::Missing) => return Err(AuthError::NotLoggedIn),
             Err(SessionError::InvalidHeader) => return Err(AuthError::InvalidHeader),
@@ -92,7 +97,8 @@ impl FromRequestParts<App> for Auth {
                 return Err(AuthError::InvalidSessionTokenFormat);
             }
         };
-        let user = app.database.session_user(&session).await.unwrap();
+        let database = Database::new(state.clone());
+        let user = database.session_user(&session).await.unwrap();
         Ok(Auth {
             user_id: user.user_id,
             username: user.username,

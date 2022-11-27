@@ -1,5 +1,5 @@
+use crate::app::Resources;
 use crate::auth::Auth;
-use crate::config::Config;
 use crate::database::{Forum, Settings, Thread, ThreadPost, User};
 use axum::response::Html;
 use std::collections::HashMap;
@@ -8,27 +8,26 @@ use tera::{Context, Tera};
 use uuid::Uuid;
 
 pub struct View {
-    tera: Tera,
-    config: Arc<Config>,
+    resources: Arc<Resources>,
+    auth: Option<Auth>,
 }
 
 impl View {
-    pub fn new(config: Arc<Config>) -> View {
-        let tera = Tera::new("template/**/*.html").unwrap();
-        View { tera, config }
+    pub fn new(resources: Arc<Resources>, auth: Option<Auth>) -> View {
+        View { resources, auth }
     }
 
-    pub fn homepage(&self, forums: &[Forum], auth: &Option<Auth>) -> Html<String> {
-        let mut ctx = self.make_context(auth);
+    pub fn homepage(&self, forums: &[Forum]) -> Html<String> {
+        let mut ctx = self.make_context();
         ctx.insert("forums", forums);
-        Html(self.tera.render("homepage.html", &ctx).unwrap())
+        self.render("homepage.html", ctx)
     }
 
-    pub fn forum(&self, forum: &Forum, threads: &[Thread], auth: &Option<Auth>) -> Html<String> {
-        let mut ctx = self.make_context(auth);
+    pub fn forum(&self, forum: &Forum, threads: &[Thread]) -> Html<String> {
+        let mut ctx = self.make_context();
         ctx.insert("forum", forum);
         ctx.insert("threads", threads);
-        Html(self.tera.render("forum.html", &ctx).unwrap())
+        self.render("forum.html", ctx)
     }
 
     pub fn thread(
@@ -36,49 +35,54 @@ impl View {
         thread: &Thread,
         posts: &[ThreadPost],
         users: &HashMap<Uuid, User>,
-        auth: &Option<Auth>,
     ) -> Html<String> {
-        let mut ctx = self.make_context(auth);
+        let mut ctx = self.make_context();
         ctx.insert("thread", thread);
         ctx.insert("posts", posts);
         ctx.insert("users", users);
-        Html(self.tera.render("thread.html", &ctx).unwrap())
+        self.render("thread.html", ctx)
     }
 
-    pub fn user(&self, user: &User, auth: &Option<Auth>) -> Html<String> {
-        let mut ctx = self.make_context(auth);
+    pub fn user(&self, user: &User) -> Html<String> {
+        let mut ctx = self.make_context();
         ctx.insert("user", user);
-        Html(self.tera.render("user.html", &ctx).unwrap())
+        self.render("user.html", ctx)
     }
 
-    pub fn login(&self, auth: &Option<Auth>) -> Html<String> {
-        let ctx = self.make_context(auth);
-        Html(self.tera.render("login.html", &ctx).unwrap())
+    pub fn login(&self) -> Html<String> {
+        self.render("login.html", self.make_context())
     }
 
-    pub fn register(&self, auth: &Option<Auth>) -> Html<String> {
-        let ctx = self.make_context(auth);
-        Html(self.tera.render("register.html", &ctx).unwrap())
+    pub fn register(&self) -> Html<String> {
+        self.render("register.html", self.make_context())
     }
 
-    pub fn settings(&self, settings: &Settings, auth: &Option<Auth>) -> Html<String> {
-        let mut ctx = self.make_context(auth);
+    pub fn settings(&self, settings: &Settings) -> Html<String> {
+        let mut ctx = self.make_context();
         ctx.insert("settings", settings);
-        Html(self.tera.render("settings.html", &ctx).unwrap())
+        self.render("settings.html", ctx)
     }
 
-    pub fn settings_totp(&self, qr_png_base64: &str, auth: &Option<Auth>) -> Html<String> {
-        let mut ctx = self.make_context(auth);
+    pub fn settings_totp(&self, qr_png_base64: &str) -> Html<String> {
+        let mut ctx = self.make_context();
         ctx.insert("qr_png_base64", qr_png_base64);
-        Html(self.tera.render("settings-totp.html", &ctx).unwrap())
+        self.render("settings-totp.html", ctx)
     }
 
-    fn make_context(&self, auth: &Option<Auth>) -> Context {
+    fn make_context(&self) -> Context {
         let mut ctx = Context::new();
-        if let Some(auth) = auth {
+        if let Some(auth) = &self.auth {
             ctx.insert("auth", auth);
         }
-        ctx.insert("site", &self.config.site);
+        ctx.insert("site", &self.resources.config.site);
         ctx
     }
+
+    fn render(&self, template: &str, ctx: Context) -> Html<String> {
+        Html(self.resources.tera.render(template, &ctx).unwrap())
+    }
+}
+
+pub fn make_tera() -> Tera {
+    Tera::new("template/**/*.html").unwrap()
 }
