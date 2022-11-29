@@ -17,7 +17,7 @@
             {% endfor %}
         </div>
     {% endfor %}
-    <form action="/thread/{thread_id}/post" method="post">
+    <form action="/thread/{{ thread.id }}/post" method="post">
         <label for="post-content">Post content:</label>
         <textarea name="content" id="post-content" rows="10" cols="80"></textarea>
         <input type="submit" value="Post">
