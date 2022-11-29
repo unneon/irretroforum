@@ -65,7 +65,7 @@ pub struct Thread {
 
 #[derive(Serialize)]
 pub struct ThreadPost {
-    pub author: Uuid,
+    pub author: User,
     pub content: String,
     pub reacts: Vec<React>,
 }
@@ -210,11 +210,14 @@ impl Database {
         let posts = rows
             .into_iter()
             .map(|row| {
-                let react_emojis: Vec<Option<String>> = row.get(2);
-                let react_counts: Vec<i64> = row.get(3);
+                let react_emojis: Vec<Option<String>> = row.get(3);
+                let react_counts: Vec<i64> = row.get(4);
                 ThreadPost {
-                    author: row.get(0),
-                    content: row.get(1),
+                    author: User {
+                        id: row.get(0),
+                        username: row.get(1),
+                    },
+                    content: row.get(2),
                     reacts: react_emojis
                         .into_iter()
                         .zip(react_counts.into_iter())
@@ -320,7 +323,7 @@ impl Statements {
             .await?;
         let thread_posts = client
             .prepare(
-                "SELECT author, content, ARRAY_AGG(emoji), ARRAY_AGG(react_count)
+                "SELECT author, username, content, ARRAY_AGG(emoji), ARRAY_AGG(react_count)
                 FROM (
                     SELECT p.author, p.time_created, content, emoji, COUNT(r.author) react_count
                     FROM posts p
@@ -329,9 +332,10 @@ impl Statements {
                     WHERE p.thread = $1
                     GROUP BY p.author, p.time_created, content, emoji
                     ORDER BY react_count DESC, emoji
-                ) AS pr
-                GROUP BY author, time_created, content
-                ORDER BY time_created;",
+                ) AS pr, users u
+                WHERE author = u.id
+                GROUP BY author, username, pr.time_created, content
+                ORDER BY pr.time_created;",
             )
             .await?;
         let user = client

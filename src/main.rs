@@ -13,8 +13,6 @@ use axum::response::{AppendHeaders, IntoResponse, Redirect};
 use axum::routing::{get, post};
 use axum::{Form, Router};
 use serde::Deserialize;
-use std::collections::hash_map::Entry;
-use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tracing::info;
@@ -52,14 +50,7 @@ async fn show_forum(forum_id: Path<Uuid>, app: App) -> Result<impl IntoResponse>
 async fn show_thread(thread_id: Path<Uuid>, app: App) -> Result<impl IntoResponse> {
     let thread = app.database.thread(*thread_id).await?;
     let posts = app.database.thread_posts(thread.id).await?;
-    let mut users = HashMap::new();
-    for post in &posts {
-        if let Entry::Vacant(v) = users.entry(post.author) {
-            let author = app.database.user(post.author).await?;
-            v.insert(author);
-        }
-    }
-    Ok(app.view.thread(&thread, &posts, &users))
+    Ok(app.view.thread(&thread, &posts))
 }
 
 async fn post_in_thread(

@@ -5,7 +5,7 @@
 {% block main %}
     {% for post in posts %}
         <div>
-            <a href="/user/{{ post.author }}">{{ users[post.author].username }}</a>:
+            <a href="/user/{{ post.author.id }}">{{ post.author.username }}</a>:
             <p>{{ post.content }}</p>
             {% for react in post.reacts %}
                 <span>

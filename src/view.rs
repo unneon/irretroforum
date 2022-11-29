@@ -2,10 +2,8 @@ use crate::app::Resources;
 use crate::auth::Auth;
 use crate::database::{Forum, Settings, Thread, ThreadPost, User};
 use axum::response::Html;
-use std::collections::HashMap;
 use std::sync::Arc;
 use tera::{Context, Tera};
-use uuid::Uuid;
 
 pub struct View {
     resources: Arc<Resources>,
@@ -30,16 +28,10 @@ impl View {
         self.render("forum.html", ctx)
     }
 
-    pub fn thread(
-        &self,
-        thread: &Thread,
-        posts: &[ThreadPost],
-        users: &HashMap<Uuid, User>,
-    ) -> Html<String> {
+    pub fn thread(&self, thread: &Thread, posts: &[ThreadPost]) -> Html<String> {
         let mut ctx = self.make_context();
         ctx.insert("thread", thread);
         ctx.insert("posts", posts);
-        ctx.insert("users", users);
         self.render("thread.html", ctx)
     }
 
