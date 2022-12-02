@@ -1,0 +1,55 @@
+body {
+    max-width: 1536px;
+    margin: 0 auto;
+    padding: 0 4%;
+}
+
+.post {
+    display: flex;
+    border: 1px solid lightgrey;
+}
+
+.post:not(:first-of-type) {
+    border-top: none;
+}
+
+.post-author {
+    width: 256px;
+    min-height: 64px;
+    padding: 8px;
+    font-style: normal;
+}
+
+.post-author-username-container {
+    text-align: center;
+}
+
+.post-author-username {
+    color: unset;
+    text-decoration: none;
+    font-weight: bold;
+}
+
+.post-author-title {
+    color: var(--title-color);
+    text-align: center;
+}
+
+.post-main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    border-left: 1px solid lightgrey;
+    padding: 8px;
+}
+
+.post-reacts {
+    margin-top: auto;
+}
+
+.post-react {
+    display: inline-block;
+    border: 1px solid lightgrey;
+    padding: 4px;
+    border-radius: 8px;
+}

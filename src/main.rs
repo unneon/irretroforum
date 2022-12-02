@@ -9,6 +9,7 @@ use crate::app::{logging_middleware, App, Resources};
 use crate::auth::{verify_password, verify_totp, Auth, Session};
 use crate::error::Result;
 use axum::extract::Path;
+use axum::http::header::CONTENT_TYPE;
 use axum::response::{IntoResponse, Redirect};
 use axum::routing::{get, post};
 use axum::{Form, Router};
@@ -131,7 +132,7 @@ async fn totp_enable(auth: Auth, app: App) -> Result<impl IntoResponse> {
 }
 
 async fn show_css() -> impl IntoResponse {
-    include_str!("css/style.css")
+    ([(CONTENT_TYPE, "text/css")], include_str!("css/style.css"))
 }
 
 #[tokio::main]

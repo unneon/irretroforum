@@ -3,20 +3,37 @@
     {{ thread.title }}
 {% endblock title %}
 {% block main %}
-    {% for post in posts %}
-        <div>
-            <a href="/user/{{ post.author.id }}">{{ post.author.username }}</a> <span style="color: #{{ post.author.title.color }}">{{ post.author.title.name }}</span>:
-            <p>{{ post.content }}</p>
-            {% for react in post.reacts %}
-                <span>
-                    {{ react.emoji }}
-                    {% if react.count > 1 %}
-                        {{ react.count }}
-                    {% endif %}
-                </span>
-            {% endfor %}
-        </div>
-    {% endfor %}
+    <main>
+        {% for post in posts %}
+            <article class="post">
+                <address style="--title-color: #{{ post.author.title.color }}" class="post-author">
+                    <div class="post-author-username-container">
+                        <a href="/user/{{ post.author.id }}" class="post-author-username">
+                            {{ post.author.username }}
+                        </a>
+                    </div>
+                    <div class="post-author-title">
+                        {{ post.author.title.name }}
+                    </div>
+                </address>
+                <div class="post-main">
+                    <div class="post-content">
+                        {{ post.content }}
+                    </div>
+                    <div class="post-reacts">
+                        {% for react in post.reacts %}
+                            <div class="post-react">
+                                {{ react.emoji }}
+                                {% if react.count > 1 %}
+                                    {{ react.count }}
+                                {% endif %}
+                            </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </article>
+        {% endfor %}
+    </main>
     <form action="/thread/{{ thread.id }}/post" method="post">
         <label for="post-content">Post content:</label>
         <textarea name="content" id="post-content" rows="10" cols="80"></textarea>
