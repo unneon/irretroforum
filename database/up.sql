@@ -38,3 +38,15 @@ CREATE TABLE sessions (
     "user" UUID REFERENCES users(id) NOT NULL,
     token CHAR(32) NOT NULL
 );
+
+CREATE TABLE titles (
+    id UUID PRIMARY KEY NOT NULL DEFAULT gen_random_uuid(),
+    name VARCHAR(256) NOT NULL,
+    color CHAR(6) NOT NULL
+);
+
+CREATE TABLE user_titles (
+    id UUID PRIMARY KEY NOT NULL DEFAULT gen_random_uuid(),
+    "user" UUID REFERENCES users(id) NOT NULL,
+    title UUID REFERENCES titles(id) NOT NULL
+);

@@ -4,4 +4,5 @@
 {% endblock title %}
 {% block main %}
     <p>{{ user.username }}</p>
+    <p style="color: #{{ user.title.color }}">{{ user.title.name }}</p>
 {% endblock main %}

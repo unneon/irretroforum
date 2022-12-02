@@ -55,6 +55,7 @@ pub struct Settings {
 pub struct User {
     pub id: Uuid,
     pub username: String,
+    pub title: Title,
 }
 
 #[derive(Serialize)]
@@ -68,6 +69,12 @@ pub struct ThreadPost {
     pub author: User,
     pub content: String,
     pub reacts: Vec<React>,
+}
+
+#[derive(Serialize)]
+pub struct Title {
+    pub name: String,
+    pub color: String,
 }
 
 pub struct UserAuth {
@@ -210,14 +217,18 @@ impl Database {
         let posts = rows
             .into_iter()
             .map(|row| {
-                let react_emojis: Vec<Option<String>> = row.get(3);
-                let react_counts: Vec<i64> = row.get(4);
+                let react_emojis: Vec<Option<String>> = row.get(5);
+                let react_counts: Vec<i64> = row.get(6);
                 ThreadPost {
                     author: User {
                         id: row.get(0),
                         username: row.get(1),
+                        title: Title {
+                            name: row.get(2),
+                            color: row.get(3),
+                        },
                     },
-                    content: row.get(2),
+                    content: row.get(4),
                     reacts: react_emojis
                         .into_iter()
                         .zip(react_counts.into_iter())
@@ -243,6 +254,10 @@ impl Database {
         Ok(User {
             id,
             username: row.get(0),
+            title: Title {
+                name: row.get(1),
+                color: row.get(2),
+            },
         })
     }
 
@@ -271,6 +286,11 @@ impl Database {
         Ok(User {
             id: row.get(0),
             username: username.to_owned(),
+            // TODO: Return title.
+            title: Title {
+                name: String::new(),
+                color: String::new(),
+            },
         })
     }
 
@@ -323,7 +343,7 @@ impl Statements {
             .await?;
         let thread_posts = client
             .prepare(
-                "SELECT author, username, content, ARRAY_AGG(emoji), ARRAY_AGG(react_count)
+                "SELECT author, username, t.name, t.color, content, ARRAY_AGG(emoji), ARRAY_AGG(react_count)
                 FROM (
                     SELECT p.author, p.time_created, content, emoji, COUNT(r.author) react_count
                     FROM posts p
@@ -332,14 +352,14 @@ impl Statements {
                     WHERE p.thread = $1
                     GROUP BY p.author, p.time_created, content, emoji
                     ORDER BY react_count DESC, emoji
-                ) AS pr, users u
-                WHERE author = u.id
-                GROUP BY author, username, pr.time_created, content
+                ) AS pr, users u, user_titles ut, titles t
+                WHERE author = u.id AND u.id = ut.\"user\" AND ut.title = t.id
+                GROUP BY author, username, t.name, t.color, pr.time_created, content
                 ORDER BY pr.time_created;",
             )
             .await?;
         let user = client
-            .prepare("SELECT username FROM users WHERE id = $1")
+            .prepare("SELECT username, t.name, t.color FROM users u, user_titles ut, titles t WHERE u.id = $1 AND ut.\"user\" = u.id AND ut.title = t.id")
             .await?;
         let user_auth = client
             .prepare("SELECT id, password_phc, totp_secret FROM users WHERE username = $1")
