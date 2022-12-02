@@ -5,12 +5,11 @@ use argon2::password_hash::SaltString;
 use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
 use axum::extract::rejection::TypedHeaderRejectionReason;
 use axum::extract::FromRequestParts;
-use axum::headers::{Cookie, HeaderName};
-use axum::http::header::SET_COOKIE;
 use axum::http::request::Parts;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::{async_trait, TypedHeader};
+use axum_extra::extract::cookie::{Cookie, SameSite};
 use rand::Rng;
 use serde::Serialize;
 use std::sync::Arc;
@@ -69,15 +68,12 @@ impl Session {
         hex::encode(self.token)
     }
 
-    pub fn set_cookie(&self) -> (HeaderName, String) {
-        let hex = self.token_hex();
-        let value = format!("{SESSION_COOKIE_NAME}={hex}; Secure; HttpOnly; SameSite=Strict");
-        (SET_COOKIE, value)
-    }
-
-    pub fn unset_cookie(&self) -> (HeaderName, String) {
-        let value = format!("{SESSION_COOKIE_NAME}=; Max-Age=0; Secure; HttpOnly; SameSite=Strict");
-        (SET_COOKIE, value)
+    pub fn cookie(&self) -> Cookie<'static> {
+        Cookie::build(SESSION_COOKIE_NAME, self.token_hex())
+            .secure(true)
+            .http_only(true)
+            .same_site(SameSite::Strict)
+            .finish()
     }
 }
 
@@ -111,7 +107,8 @@ impl<S: Send + Sync> FromRequestParts<S> for Session {
     type Rejection = SessionError;
 
     async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
-        let cookie = match TypedHeader::<Cookie>::from_request_parts(parts, state).await {
+        let header = TypedHeader::<axum::headers::Cookie>::from_request_parts(parts, state).await;
+        let cookie = match header {
             Ok(cookie) => cookie,
             Err(e) => {
                 return match e.reason() {

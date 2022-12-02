@@ -9,9 +9,10 @@ use crate::app::{logging_middleware, App, Resources};
 use crate::auth::{verify_password, verify_totp, Auth, Session};
 use crate::error::Result;
 use axum::extract::Path;
-use axum::response::{AppendHeaders, IntoResponse, Redirect};
+use axum::response::{IntoResponse, Redirect};
 use axum::routing::{get, post};
 use axum::{Form, Router};
+use axum_extra::extract::CookieJar;
 use serde::Deserialize;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -74,7 +75,7 @@ async fn show_login_form(app: App) -> impl IntoResponse {
     app.view.login()
 }
 
-async fn login(app: App, form: Form<LogInForm>) -> Result<impl IntoResponse> {
+async fn login(cookies: CookieJar, app: App, form: Form<LogInForm>) -> Result<impl IntoResponse> {
     let user = app.database.user_auth(&form.username).await?;
     verify_password(&form.password, &user.password_phc)?;
     if let Some(totp_secret) = user.totp_secret {
@@ -82,19 +83,23 @@ async fn login(app: App, form: Form<LogInForm>) -> Result<impl IntoResponse> {
     }
     let session = auth::generate_session_token();
     app.database.session_insert(user.id, &session).await?;
-    Ok((AppendHeaders([session.set_cookie()]), Redirect::to("/")))
+    Ok((cookies.add(session.cookie()), Redirect::to("/")))
 }
 
-async fn logout(session: Session, app: App) -> Result<impl IntoResponse> {
+async fn logout(session: Session, cookies: CookieJar, app: App) -> Result<impl IntoResponse> {
     app.database.session_delete(&session).await?;
-    Ok((AppendHeaders([session.unset_cookie()]), Redirect::to("/")))
+    Ok((cookies.remove(session.cookie()), Redirect::to("/")))
 }
 
 async fn show_register_form(app: App) -> impl IntoResponse {
     app.view.register()
 }
 
-async fn register(app: App, form: Form<RegisterForm>) -> Result<impl IntoResponse> {
+async fn register(
+    cookies: CookieJar,
+    app: App,
+    form: Form<RegisterForm>,
+) -> Result<impl IntoResponse> {
     let password_phc = auth::generate_new_phc(&form.password);
     let user = app
         .database
@@ -102,7 +107,7 @@ async fn register(app: App, form: Form<RegisterForm>) -> Result<impl IntoRespons
         .await?;
     let session = auth::generate_session_token();
     app.database.session_insert(user.id, &session).await?;
-    Ok((AppendHeaders([session.set_cookie()]), Redirect::to("/")))
+    Ok((cookies.add(session.cookie()), Redirect::to("/")))
 }
 
 async fn show_settings(auth: Auth, app: App) -> Result<impl IntoResponse> {

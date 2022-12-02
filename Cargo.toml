@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 argon2 = "0.4"
 axum = { version = "0.6", features = ["form", "headers", "http1", "tokio"], default-features = false }
+axum-extra = { version = "0.4", features = ["cookie"] }
 hex = "0.4"
 html-escape = "0.2"
 knuffel = { version = "2.0", features = ["derive"], default-features = false }
