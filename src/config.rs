@@ -32,6 +32,12 @@ pub struct Database {
 }
 
 #[derive(Decode)]
+pub struct Storage {
+    #[knuffel(child, unwrap(argument))]
+    pub avatars: PathBuf,
+}
+
+#[derive(Decode)]
 pub struct Config {
     #[knuffel(child)]
     pub site: Site,
@@ -39,6 +45,8 @@ pub struct Config {
     pub server: Server,
     #[knuffel(child)]
     pub database: Database,
+    #[knuffel(child)]
+    pub storage: Storage,
 }
 
 impl<S: ErrorSpan> DecodeScalar<S> for IpAddrWrapper {

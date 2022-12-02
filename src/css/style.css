@@ -30,6 +30,15 @@ body {
     font-weight: bold;
 }
 
+.post-author-avatar-container {
+    margin: 8px;
+    text-align: center;
+}
+
+.post-author-avatar {
+    border-radius: 8px;
+}
+
 .post-author-title {
     color: var(--title-color);
     text-align: center;

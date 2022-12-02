@@ -72,6 +72,11 @@ async fn show_user(user_id: Path<Uuid>, app: App) -> Result<impl IntoResponse> {
     Ok(app.view.user(&user))
 }
 
+async fn show_user_avatar(user_id: Path<Uuid>, app: App) -> Result<impl IntoResponse> {
+    let image = std::fs::read(app.config.storage.avatars.join(user_id.to_string()))?;
+    Ok(([(CONTENT_TYPE, "image/jpeg")], image))
+}
+
 async fn show_login_form(app: App) -> impl IntoResponse {
     app.view.login()
 }
@@ -150,6 +155,7 @@ async fn main() {
         .route("/thread/:id", get(show_thread))
         .route("/thread/:id/post", post(post_in_thread))
         .route("/user/:id", get(show_user))
+        .route("/user/:id/avatar", get(show_user_avatar))
         .route("/login", get(show_login_form).post(login))
         .route("/logout", post(logout))
         .route("/register", get(show_register_form).post(register))

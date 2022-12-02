@@ -12,6 +12,9 @@
                             {{ post.author.username }}
                         </a>
                     </div>
+                    <div class="post-author-avatar-container">
+                        <img src="/user/{{ post.author.id }}/avatar" width="128" height="128" alt="{{ post.author.username }}'s profile picture" class="post-author-avatar">
+                    </div>
                     <div class="post-author-title">
                         {{ post.author.title.name }}
                     </div>
