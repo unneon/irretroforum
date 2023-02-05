@@ -5,8 +5,9 @@ use crate::database::{Database, Statements};
 use crate::view::make_tera;
 use crate::view::View;
 use axum::extract::{ConnectInfo, FromRequestParts};
+use axum::http::header::USER_AGENT;
 use axum::http::request::Parts;
-use axum::http::{Request, StatusCode};
+use axum::http::{HeaderValue, Request, StatusCode};
 use axum::middleware::Next;
 use axum::response::Response;
 use axum::{async_trait, RequestPartsExt};
@@ -15,7 +16,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use tera::Tera;
 use tokio_postgres::Client;
-use tracing::{event, span, Instrument, Level};
+use tracing::{event, span, warn, Instrument, Level};
 use uuid::Uuid;
 
 pub struct Resources {
@@ -74,7 +75,8 @@ pub async fn logging_middleware<B>(req: Request<B>, next: Next<B>) -> Result<Res
         let query = parts.uri.query().unwrap_or_default();
         let version = format!("{:?}", parts.version);
         let ip = connect_info.0.ip();
-        event!(Level::DEBUG, %method, path, query, version, %ip);
+        let user_agent = get_user_agent(&parts);
+        event!(Level::DEBUG, %method, path, query, version, %ip, user_agent);
         let req = Request::from_parts(parts, body);
         let response = next.run(req).await;
         let status = response.status().as_u16();
@@ -83,4 +85,16 @@ pub async fn logging_middleware<B>(req: Request<B>, next: Next<B>) -> Result<Res
     }
     .instrument(span)
     .await)
+}
+
+fn get_user_agent(parts: &Parts) -> &str {
+    let Some(value) = parts.headers.get(USER_AGENT) else {
+        warn!("user agent header not sent by client");
+        return "";
+    };
+    let Ok(user_agent) = value.to_str() else {
+        let bytes = value.as_bytes();
+        warn!(%bytes, "user agent contains non-ASCII characters");
+    };
+    user_agent
 }
