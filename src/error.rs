@@ -3,6 +3,7 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub enum Error {
     LogIn(LogInError),
     Database(tokio_postgres::Error),

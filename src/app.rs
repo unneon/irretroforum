@@ -4,13 +4,14 @@ use crate::database;
 use crate::database::{Database, Statements};
 use crate::view::make_tera;
 use crate::view::View;
+use axum::body::Body;
 use axum::extract::{ConnectInfo, FromRequestParts};
 use axum::http::header::USER_AGENT;
 use axum::http::request::Parts;
-use axum::http::{HeaderValue, Request, StatusCode};
+use axum::http::{Request, StatusCode};
 use axum::middleware::Next;
 use axum::response::Response;
-use axum::{async_trait, RequestPartsExt};
+use axum::RequestPartsExt;
 use std::convert::Infallible;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -47,7 +48,6 @@ impl Resources {
     }
 }
 
-#[async_trait]
 impl FromRequestParts<Arc<Resources>> for App {
     type Rejection = Infallible;
 
@@ -55,7 +55,7 @@ impl FromRequestParts<Arc<Resources>> for App {
         parts: &mut Parts,
         state: &Arc<Resources>,
     ) -> Result<Self, Self::Rejection> {
-        let auth = Option::<Auth>::from_request_parts(parts, state).await?;
+        let auth = Auth::from_request_parts(parts, state).await.ok();
         Ok(App {
             database: Database::new(state.clone()),
             view: View::new(state.clone(), auth),
@@ -64,7 +64,7 @@ impl FromRequestParts<Arc<Resources>> for App {
     }
 }
 
-pub async fn logging_middleware<B>(req: Request<B>, next: Next<B>) -> Result<Response, StatusCode> {
+pub async fn logging_middleware(req: Request<Body>, next: Next) -> Result<Response, StatusCode> {
     let request_id = Uuid::new_v4();
     let span = span!(Level::INFO, "request", id = request_id.to_string());
     Ok(async move {
@@ -94,7 +94,8 @@ fn get_user_agent(parts: &Parts) -> &str {
     };
     let Ok(user_agent) = value.to_str() else {
         let bytes = value.as_bytes();
-        warn!(%bytes, "user agent contains non-ASCII characters");
+        warn!(bytes, "user agent contains non-ASCII characters");
+        return "";
     };
     user_agent
 }

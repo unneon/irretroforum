@@ -4,18 +4,18 @@ version = "0.0.0"
 edition = "2021"
 
 [dependencies]
-argon2 = "0.4"
-axum = { version = "0.6", features = ["form", "headers", "http1", "tokio"], default-features = false }
-axum-extra = { version = "0.4", features = ["cookie"] }
+argon2 = "0.5"
+axum = { version = "0.8", features = ["form", "http1", "tokio"], default-features = false }
+axum-extra = { version = "0.10", features = ["cookie", "typed-header"] }
 hex = "0.4"
-html-escape = "0.2"
-knuffel = { version = "2.0", features = ["derive"], default-features = false }
+knuffel = { version = "3.2", features = ["derive"], default-features = false }
+# TODO: Upgrade rand to 0.9 once argon2 supports it.
 rand = "0.8"
 serde = { version = "1.0", features = ["derive"] }
 tera = { version = "1.17", default-features = false }
 tokio = { version = "1.22", features = ["macros", "rt-multi-thread"] }
 tokio-postgres = { version = "0.7", features = ["with-uuid-1"] }
-totp-rs = { version = "3.1", features = ["qr", "gen_secret"] }
+totp-rs = { version = "5.6", features = ["qr", "gen_secret"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uuid = { version = "1.2", features = ["serde", "v4"] }

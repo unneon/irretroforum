@@ -84,6 +84,7 @@ pub struct UserAuth {
 }
 
 pub struct UserTotp {
+    #[allow(dead_code)]
     pub id: Uuid,
     pub totp_secret: Option<String>,
 }

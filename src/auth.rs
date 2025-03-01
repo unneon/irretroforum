@@ -3,13 +3,13 @@ use crate::config::Config;
 use crate::database::Database;
 use argon2::password_hash::SaltString;
 use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
-use axum::extract::rejection::TypedHeaderRejectionReason;
 use axum::extract::FromRequestParts;
 use axum::http::request::Parts;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use axum::{async_trait, TypedHeader};
 use axum_extra::extract::cookie::{Cookie, SameSite};
+use axum_extra::typed_header::TypedHeaderRejectionReason;
+use axum_extra::TypedHeader;
 use rand::Rng;
 use serde::Serialize;
 use std::sync::Arc;
@@ -69,15 +69,14 @@ impl Session {
     }
 
     pub fn cookie(&self) -> Cookie<'static> {
-        Cookie::build(SESSION_COOKIE_NAME, self.token_hex())
+        Cookie::build((SESSION_COOKIE_NAME, self.token_hex()))
             .secure(true)
             .http_only(true)
             .same_site(SameSite::Strict)
-            .finish()
+            .build()
     }
 }
 
-#[async_trait]
 impl FromRequestParts<Arc<Resources>> for Auth {
     type Rejection = AuthError;
 
@@ -102,12 +101,15 @@ impl FromRequestParts<Arc<Resources>> for Auth {
     }
 }
 
-#[async_trait]
 impl<S: Send + Sync> FromRequestParts<S> for Session {
     type Rejection = SessionError;
 
     async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
-        let header = TypedHeader::<axum::headers::Cookie>::from_request_parts(parts, state).await;
+        let header =
+            <TypedHeader<axum_extra::headers::Cookie> as FromRequestParts<_>>::from_request_parts(
+                parts, state,
+            )
+            .await;
         let cookie = match header {
             Ok(cookie) => cookie,
             Err(e) => {
@@ -176,7 +178,7 @@ pub fn generate_session_token() -> Session {
 
 pub fn generate_totp_qr(secret: &str, username: &str, config: &Config) -> String {
     let totp = make_totp(secret, username, config);
-    totp.get_qr().unwrap()
+    totp.get_qr_base64().unwrap()
 }
 
 fn make_password_kdf() -> Argon2<'static> {
@@ -184,7 +186,8 @@ fn make_password_kdf() -> Argon2<'static> {
     Argon2::new(ARGON2_ALGORITHM, ARGON2_VERSION, params)
 }
 
-fn make_totp<'a>(secret: &'a str, username: &str, config: &Config) -> TOTP<&'a str> {
+fn make_totp(secret: &str, username: &str, config: &Config) -> TOTP {
+    let secret = secret.as_bytes().to_owned();
     let issuer = Some(config.site.name.clone());
     let account_name = username.to_owned();
     let rfc6238 = totp_rs::Rfc6238::new(6, secret, issuer, account_name).unwrap();

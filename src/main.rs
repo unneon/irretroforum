@@ -165,9 +165,7 @@ async fn main() {
         .route("/style.css", get(show_css))
         .layer(axum::middleware::from_fn(logging_middleware))
         .with_state(state);
+    let listener = tokio::net::TcpListener::bind(listen_address).await.unwrap();
     info!("listening on http://{listen_address}");
-    axum::Server::bind(&listen_address)
-        .serve(router.into_make_service_with_connect_info::<SocketAddr>())
-        .await
-        .unwrap();
+    axum::serve(listener, router).await.unwrap();
 }
