@@ -151,11 +151,11 @@ async fn main() {
     let state = Arc::new(Resources::new(config).await);
     let router = Router::new()
         .route("/", get(show_homepage))
-        .route("/forum/:id", get(show_forum))
-        .route("/thread/:id", get(show_thread))
-        .route("/thread/:id/post", post(post_in_thread))
-        .route("/user/:id", get(show_user))
-        .route("/user/:id/avatar", get(show_user_avatar))
+        .route("/forum/{id}", get(show_forum))
+        .route("/thread/{id}", get(show_thread))
+        .route("/thread/{id}/post", post(post_in_thread))
+        .route("/user/{id}", get(show_user))
+        .route("/user/{id}/avatar", get(show_user_avatar))
         .route("/login", get(show_login_form).post(login))
         .route("/logout", post(logout))
         .route("/register", get(show_register_form).post(register))
@@ -167,5 +167,10 @@ async fn main() {
         .with_state(state);
     let listener = tokio::net::TcpListener::bind(listen_address).await.unwrap();
     info!("listening on http://{listen_address}");
-    axum::serve(listener, router).await.unwrap();
+    axum::serve(
+        listener,
+        router.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await
+    .unwrap();
 }
